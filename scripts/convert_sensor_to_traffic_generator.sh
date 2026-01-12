@@ -34,7 +34,7 @@ SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
 # Step 1: Check sensor connectivity
 log_info "Checking sensor connectivity..."
-if ! sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+if ! SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
     "$SSH_USERNAME@$SENSOR_IP" "echo 'Connected'" >/dev/null 2>&1; then
     log_error "Cannot connect to sensor at $SENSOR_IP"
@@ -44,7 +44,7 @@ log_info "Sensor is reachable"
 
 # Step 2: Check sensor status
 log_info "Checking sensor status..."
-sensor_status=$(sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+sensor_status=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
     "$SSH_USERNAME@$SENSOR_IP" \
     "sudo corelightctl sensor status 2>/dev/null | grep -o 'Status:.*' | awk '{print \$2}' || echo 'unknown'")
@@ -63,7 +63,7 @@ log_info "Installing traffic generation tools..."
 case "$MODE" in
     simple)
         log_info "Uploading simple socket-based traffic generator..."
-        sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no \
+        SSHPASS="$SSH_PASSWORD" sshpass -e scp -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             "$PROJECT_ROOT/scripts/simple_traffic_generator.py" \
             "$SSH_USERNAME@$SENSOR_IP:/tmp/" || {
@@ -71,7 +71,7 @@ case "$MODE" in
             exit 1
         }
 
-        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+        SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             "$SSH_USERNAME@$SENSOR_IP" \
             "chmod +x /tmp/simple_traffic_generator.py"
@@ -81,7 +81,7 @@ case "$MODE" in
 
     scapy)
         log_info "Installing scapy..."
-        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+        SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             "$SSH_USERNAME@$SENSOR_IP" \
             "sudo python3 -m pip install scapy 2>&1 | tail -5" || {
@@ -90,7 +90,7 @@ case "$MODE" in
         }
 
         log_info "Uploading scapy traffic generator..."
-        sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no \
+        SSHPASS="$SSH_PASSWORD" sshpass -e scp -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             "$PROJECT_ROOT/scripts/scapy_traffic_generator.py" \
             "$SSH_USERNAME@$SENSOR_IP:/tmp/" || {
@@ -98,7 +98,7 @@ case "$MODE" in
             exit 1
         }
 
-        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+        SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             "$SSH_USERNAME@$SENSOR_IP" \
             "chmod +x /tmp/scapy_traffic_generator.py"
@@ -110,7 +110,7 @@ case "$MODE" in
         log_info "Installing TRex..."
         log_warning "TRex installation requires significant resources and time"
 
-        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+        SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             "$SSH_USERNAME@$SENSOR_IP" \
             "cd /tmp && wget --no-check-certificate https://trex-tgn.cisco.com/trex/release/latest -O trex.tar.gz && tar -xzf trex.tar.gz" || {
@@ -131,7 +131,7 @@ esac
 
 # Step 4: Get network interface information
 log_info "Getting network interface information..."
-interfaces=$(sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+interfaces=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
     "$SSH_USERNAME@$SENSOR_IP" \
     "ip addr show | grep -E '^[0-9]+: (eth|ens)' | cut -d: -f2 | tr -d ' '")
@@ -143,12 +143,12 @@ done
 
 # Step 5: Get MAC addresses
 log_info "Getting interface MAC addresses..."
-eth0_mac=$(sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+eth0_mac=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
     "$SSH_USERNAME@$SENSOR_IP" \
     "ip link show eth0 | grep 'link/ether' | awk '{print \$2}'")
 
-eth1_mac=$(sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+eth1_mac=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
     "$SSH_USERNAME@$SENSOR_IP" \
     "ip link show eth1 | grep 'link/ether' | awk '{print \$2}'")

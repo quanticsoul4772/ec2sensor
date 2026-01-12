@@ -94,7 +94,7 @@ if ! command -v sshpass &> /dev/null; then
     exit 1
 fi
 
-if ! sshpass -p "$SSH_PASSWORD" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" "echo 'Connected'" &>/dev/null; then
+if ! SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" "echo 'Connected'" &>/dev/null; then
     log_error "Cannot connect to sensor at $SENSOR_IP"
     exit 1
 fi
@@ -104,7 +104,7 @@ log_info ""
 
 # Step 1: Check for system.seeded
 log_info "[Step 1/7] Checking if sensor is fully seeded..."
-seeded=$(sshpass -p "$SSH_PASSWORD" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" "sudo /opt/broala/bin/broala-config get system.seeded 2>/dev/null" 2>/dev/null || echo "0")
+seeded=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" "sudo /opt/broala/bin/broala-config get system.seeded 2>/dev/null" 2>/dev/null || echo "0")
 
 if [ "$seeded" != "1" ]; then
     log_warning "Sensor not fully seeded (system.seeded=$seeded)"
@@ -124,7 +124,7 @@ log_info ""
 if [ "$UPGRADE" = true ]; then
     log_info "[Step 2/7] Checking for updates..."
 
-    sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << 'EOF'
+    SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << 'EOF'
 echo "Listing available updates..."
 sudo corelightctl sensor updates list
 
@@ -156,7 +156,7 @@ log_info ""
 
 # Step 3: Configure admin password
 log_info "[Step 3/7] Configuring admin password..."
-sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << EOF
+SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << EOF
 sudo /opt/broala/bin/broala-config set security.user.admin.password='$ADMIN_PASSWORD'
 sudo LC_ALL=en_US.utf8 LANG=en_US.utf8 /opt/broala/bin/broala-apply-config 2>&1 | grep -E "(ok=|changed=|failed=)" || true
 EOF
@@ -165,7 +165,7 @@ log_info ""
 
 # Step 4: Disable PCAP replay mode
 log_info "[Step 4/7] Disabling PCAP replay mode..."
-sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << 'EOF'
+SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << 'EOF'
 sudo /opt/broala/bin/broala-config set bro.pcap_replay_mode=0
 sudo LC_ALL=en_US.utf8 LANG=en_US.utf8 /opt/broala/bin/broala-apply-config 2>&1 | grep -E "(ok=|changed=|failed=)" || true
 EOF
@@ -174,7 +174,7 @@ log_info ""
 
 # Step 5: Verify Suricata is enabled
 log_info "[Step 5/7] Verifying Suricata is enabled..."
-suricata_status=$(sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" \
+suricata_status=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" \
     "sudo /opt/broala/bin/broala-config get suricata.enable 2>/dev/null" 2>/dev/null || echo "0")
 
 if [ "$suricata_status" = "1" ]; then
@@ -186,7 +186,7 @@ log_info ""
 
 # Step 6: Verify SmartPCAP is enabled
 log_info "[Step 6/7] Verifying SmartPCAP is enabled..."
-smartpcap_status=$(sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" \
+smartpcap_status=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" \
     "sudo /opt/broala/bin/broala-config get smartpcap.enable 2>/dev/null" 2>/dev/null || echo "0")
 
 if [ "$smartpcap_status" = "1" ]; then
@@ -198,7 +198,7 @@ log_info ""
 
 # Step 7: Add to fleet manager
 log_info "[Step 7/7] Adding sensor to fleet manager ($FLEET_IP:$FLEET_PORT)..."
-sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << EOF
+SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << EOF
 sudo /opt/broala/bin/broala-config set fleet.community_string=broala
 sudo /opt/broala/bin/broala-config set fleet.server=$FLEET_IP:$FLEET_PORT
 sudo /opt/broala/bin/broala-config set fleet.enable=1
@@ -216,7 +216,7 @@ log_info ""
 log_info "=== Verifying Configuration ==="
 log_info ""
 
-sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << 'EOF'
+SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << 'EOF'
 echo "Fleet status:"
 sudo /opt/broala/bin/broala-config get fleet.enable 2>/dev/null || echo "  Unable to verify"
 

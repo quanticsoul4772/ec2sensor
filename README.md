@@ -75,7 +75,7 @@ tailscale status              # Check VPN
 
 **SSH connection fails:**
 ```bash
-sshpass -p "$SSH_PASSWORD" ssh broala@<sensor-ip>
+SSHPASS="$SSH_PASSWORD" sshpass -e ssh broala@<sensor-ip>
 ```
 
 ## Security

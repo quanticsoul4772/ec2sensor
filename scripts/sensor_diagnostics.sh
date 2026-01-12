@@ -60,7 +60,7 @@ check_metrics() {
         exit 1
     fi
 
-    sshpass -p "$SENSOR_PASS" ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$SENSOR_USER@$ip" << 'EOF'
+    SSHPASS="$SENSOR_PASS" sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$SENSOR_USER@$ip" << 'EOF'
 
 echo "=== Sensor Version ==="
 sudo corelightctl sensor status 2>&1 | grep -E "OSVersion|Platform"
@@ -107,7 +107,7 @@ check_processes() {
     echo "Time: $(date)"
     echo ""
 
-    sshpass -p "$SENSOR_PASS" ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$SENSOR_USER@$ip" << 'EOF'
+    SSHPASS="$SENSOR_PASS" sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$SENSOR_USER@$ip" << 'EOF'
 
 echo "Top 10 Processes by CPU Usage:"
 echo "----------------------------"
@@ -155,7 +155,7 @@ monitor_performance() {
         echo "Time: $(date)"
         echo ""
 
-        sshpass -p "$SENSOR_PASS" ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 "$SENSOR_USER@$ip" << 'EOF'
+        SSHPASS="$SENSOR_PASS" sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 "$SENSOR_USER@$ip" << 'EOF'
 echo "CPU Usage:"
 top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1"%"}'
 echo ""

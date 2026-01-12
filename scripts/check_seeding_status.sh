@@ -31,7 +31,7 @@ echo ""
 
 # Check system.seeded
 echo "Checking system.seeded..."
-seeded=$(sshpass -p "$SSH_PASSWORD" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" "sudo /opt/broala/bin/broala-config get system.seeded 2>/dev/null" 2>/dev/null || echo "error")
+seeded=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" "sudo /opt/broala/bin/broala-config get system.seeded 2>/dev/null" 2>/dev/null || echo "error")
 echo "  system.seeded = $seeded"
 
 if [ "$seeded" = "1" ]; then
@@ -42,12 +42,12 @@ fi
 
 echo ""
 echo "Checking sensor status..."
-status=$(sshpass -p "$SSH_PASSWORD" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" "sudo corelightctl sensor status 2>/dev/null | grep -o 'Status:.*' | awk '{print \$2}' || echo 'unknown'" 2>/dev/null)
+status=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" "sudo corelightctl sensor status 2>/dev/null | grep -o 'Status:.*' | awk '{print \$2}' || echo 'unknown'" 2>/dev/null)
 echo "  Sensor status = $status"
 
 echo ""
 echo "Checking broker process..."
-broker=$(sshpass -p "$SSH_PASSWORD" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" "pgrep -f zeek || echo 'not running'" 2>/dev/null)
+broker=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" "pgrep -f zeek || echo 'not running'" 2>/dev/null)
 if [ "$broker" = "not running" ]; then
     echo "  ⚠ Zeek/Broker not running"
 else

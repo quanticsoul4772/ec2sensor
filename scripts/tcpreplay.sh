@@ -63,7 +63,7 @@ install_tcpreplay() {
         exit 1
     fi
 
-    sshpass -p "$SENSOR_PASS" ssh -o StrictHostKeyChecking=accept-new "$SENSOR_USER@$ip" << 'EOF'
+    SSHPASS="$SENSOR_PASS" sshpass -e ssh -o StrictHostKeyChecking=accept-new "$SENSOR_USER@$ip" << 'EOF'
 echo "Installing tcpreplay..."
 
 # First, enable EPEL repository if not already enabled
@@ -112,7 +112,7 @@ setup_discovery() {
     echo "=== TCP Replay Setup and Discovery: $ip ==="
     echo ""
 
-    sshpass -p "$SENSOR_PASS" ssh -o StrictHostKeyChecking=accept-new "$SENSOR_USER@$ip" << 'EOF'
+    SSHPASS="$SENSOR_PASS" sshpass -e ssh -o StrictHostKeyChecking=accept-new "$SENSOR_USER@$ip" << 'EOF'
 echo "1. Looking for TCP replay tools..."
 if command -v tcpreplay &> /dev/null; then
     echo "✓ tcpreplay found at: $(which tcpreplay)"
@@ -196,7 +196,7 @@ start_replay() {
     fi
 
     echo "Copying PCAP file to sensor..."
-    sshpass -p "$SENSOR_PASS" scp -o StrictHostKeyChecking=accept-new "$pcap_file" "$SENSOR_USER@$ip:/home/$SENSOR_USER/"
+    SSHPASS="$SENSOR_PASS" sshpass -e scp -o StrictHostKeyChecking=accept-new "$pcap_file" "$SENSOR_USER@$ip:/home/$SENSOR_USER/"
     if [ $? -ne 0 ]; then
         echo "Error: Failed to copy PCAP file to sensor"
         exit 1
@@ -207,7 +207,7 @@ start_replay() {
     echo "Press Ctrl+C to stop"
     echo "----------------------------------------"
 
-    sshpass -p "$SENSOR_PASS" ssh -o StrictHostKeyChecking=accept-new "$SENSOR_USER@$ip" << EOF
+    SSHPASS="$SENSOR_PASS" sshpass -e ssh -o StrictHostKeyChecking=accept-new "$SENSOR_USER@$ip" << EOF
 # Check if tcpreplay is installed
 if ! command -v tcpreplay &> /dev/null; then
     echo "Error: tcpreplay is not installed on sensor"

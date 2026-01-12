@@ -325,7 +325,8 @@ EOF
     SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
     if command -v sshpass &> /dev/null; then
-        exec sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$sensor_ip"
+        export SSHPASS="$SSH_PASSWORD"
+        exec sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$sensor_ip"
     else
         exec ssh "$SSH_USERNAME@$sensor_ip"
     fi
@@ -967,7 +968,7 @@ case "$1" in
                 SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
                 if command -v sshpass &> /dev/null; then
-                    sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SSH_HOST"
+                    SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SSH_HOST"
                 else
                     ssh "$SSH_USERNAME@$SSH_HOST"
                 fi

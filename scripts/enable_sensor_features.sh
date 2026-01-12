@@ -43,7 +43,7 @@ log_info "Connecting to sensor to enable features..."
 # Try SSH with sshpass if password is available
 if [ -n "${SSH_PASSWORD:-}" ] && command -v sshpass &> /dev/null; then
     log_info "Using password authentication"
-    sshpass -p "${SSH_PASSWORD}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${SSH_USERNAME}@${SENSOR_IP}" << 'EOF'
+    SSHPASS="${SSH_PASSWORD}" sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${SSH_USERNAME}@${SENSOR_IP}" << 'EOF'
 echo "Enabling sensor features and licenses..."
 sudo /opt/broala/bin/broala-config set http.access.enable=1
 sudo /opt/broala/bin/broala-config set license.yara.enable=1

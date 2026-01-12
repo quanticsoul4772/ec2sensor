@@ -298,7 +298,7 @@ collect_sensor_metrics() {
             -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes \
             "$ssh_user@$sensor_ip" "$remote_cmd" 2>/dev/null)
     elif command -v sshpass &> /dev/null && [ -n "$ssh_pass" ]; then
-        metrics=$(sshpass -p "$ssh_pass" ssh $ssh_control_opts -o StrictHostKeyChecking=no \
+        metrics=$(SSHPASS="$ssh_pass" sshpass -e ssh $ssh_control_opts -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
             "$ssh_user@$sensor_ip" "$remote_cmd" 2>/dev/null)
     else

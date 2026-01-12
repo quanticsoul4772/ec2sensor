@@ -90,7 +90,7 @@ check_sensor_services() {
 
     # Try to SSH and check basic readiness
     if [ -n "${SSH_PASSWORD:-}" ] && command -v sshpass &> /dev/null; then
-        if sshpass -p "${SSH_PASSWORD}" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${SSH_USERNAME}@${ip}" "echo 'SSH OK'" &>/dev/null; then
+        if SSHPASS="${SSH_PASSWORD}" sshpass -e ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${SSH_USERNAME}@${ip}" "echo 'SSH OK'" &>/dev/null; then
             return 0
         fi
     else
@@ -108,7 +108,7 @@ check_config_ready() {
     # Check if broala-config is responsive AND system is seeded
     local seeded
     if [ -n "${SSH_PASSWORD:-}" ] && command -v sshpass &> /dev/null; then
-        seeded=$(sshpass -p "${SSH_PASSWORD}" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${SSH_USERNAME}@${ip}" "sudo /opt/broala/bin/broala-config get system.seeded 2>/dev/null" 2>/dev/null || echo "error")
+        seeded=$(SSHPASS="${SSH_PASSWORD}" sshpass -e ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${SSH_USERNAME}@${ip}" "sudo /opt/broala/bin/broala-config get system.seeded 2>/dev/null" 2>/dev/null || echo "error")
     else
         seeded=$(ssh -o ConnectTimeout=10 "${SSH_USERNAME}@${ip}" "sudo /opt/broala/bin/broala-config get system.seeded 2>/dev/null" 2>/dev/null || echo "error")
     fi

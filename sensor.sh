@@ -62,7 +62,7 @@ ssh_connect() {
     if [ "${SSH_USE_KEYS:-}" = true ]; then
         ssh $ssh_control_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$target_ip" $ssh_cmd
     elif command -v sshpass &> /dev/null && [ -n "${SSH_PASSWORD:-}" ]; then
-        sshpass -p "$SSH_PASSWORD" ssh $ssh_control_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$target_ip" $ssh_cmd
+        SSHPASS="$SSH_PASSWORD" sshpass -e ssh $ssh_control_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$target_ip" $ssh_cmd
     else
         ssh $ssh_control_opts "$SSH_USERNAME@$target_ip" $ssh_cmd
     fi
@@ -77,7 +77,8 @@ ssh_connect_exec() {
     if [ "${SSH_USE_KEYS:-}" = true ]; then
         exec ssh $ssh_control_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$target_ip"
     elif command -v sshpass &> /dev/null && [ -n "${SSH_PASSWORD:-}" ]; then
-        exec sshpass -p "$SSH_PASSWORD" ssh $ssh_control_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$target_ip"
+        export SSHPASS="$SSH_PASSWORD"
+        exec sshpass -e ssh $ssh_control_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$target_ip"
     else
         exec ssh $ssh_control_opts "$SSH_USERNAME@$target_ip"
     fi

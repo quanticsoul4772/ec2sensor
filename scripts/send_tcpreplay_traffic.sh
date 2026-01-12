@@ -66,7 +66,7 @@ fi
 
 # Step 2: Check if sensor services are running
 log_info "Checking sensor status on $SOURCE_IP..."
-sensor_status=$(sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+sensor_status=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
     "$SSH_USERNAME@$SOURCE_IP" \
     "sudo corelightctl sensor status 2>/dev/null | grep -o 'Status:.*' | awk '{print \$2}' || echo 'unknown'" 2>/dev/null)
@@ -77,7 +77,7 @@ if [ "$sensor_status" = "running" ]; then
     log_warning "Sensor services are running. They must be stopped to use eth1 for traffic generation."
     log_info "Stopping sensor services..."
 
-    sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+    SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
         "$SSH_USERNAME@$SOURCE_IP" \
         "sudo corelightctl sensor stop" 2>/dev/null || {
@@ -89,7 +89,7 @@ if [ "$sensor_status" = "running" ]; then
     sleep 5
 
     # Verify stopped
-    sensor_status=$(sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+    sensor_status=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
         "$SSH_USERNAME@$SOURCE_IP" \
         "sudo corelightctl sensor status 2>/dev/null | grep -o 'Status:.*' | awk '{print \$2}' || echo 'stopped'" 2>/dev/null)
@@ -99,7 +99,7 @@ fi
 
 # Step 3: Create remote directory and upload PCAP
 log_info "Creating remote PCAP directory..."
-sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
     "$SSH_USERNAME@$SOURCE_IP" \
     "mkdir -p $REMOTE_PCAP_DIR" 2>/dev/null || {
@@ -108,7 +108,7 @@ sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
 }
 
 log_info "Uploading PCAP file to $SOURCE_IP..."
-sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no \
+SSHPASS="$SSH_PASSWORD" sshpass -e scp -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
     "$PCAP_FILE" "$SSH_USERNAME@$SOURCE_IP:$REMOTE_PCAP_FILE" 2>/dev/null || {
     log_error "Failed to upload PCAP file"
@@ -119,7 +119,7 @@ log_info "PCAP file uploaded successfully"
 
 # Step 4: Configure eth1 interface with an IP (required for routing)
 log_info "Configuring eth1 interface..."
-sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
     "$SSH_USERNAME@$SOURCE_IP" \
     "sudo ip addr add 10.50.88.81/26 dev eth1 2>/dev/null || true && \
@@ -129,7 +129,7 @@ sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
 
 # Step 5: Get interface info
 log_info "Checking network interfaces..."
-interfaces=$(sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+interfaces=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
     "$SSH_USERNAME@$SOURCE_IP" \
     "ip addr show | grep -E '^[0-9]+: (eth|ens)' | cut -d: -f2 | tr -d ' '" 2>/dev/null)
@@ -156,7 +156,7 @@ echo ""
 # Run tcpreplay with statistics
 # --loop=0 means infinite loop
 # --stats=1 prints stats every 1 second
-sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+SSHPASS="$SSH_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 \
     "$SSH_USERNAME@$SOURCE_IP" \
     "sudo tcpreplay --intf1=eth1 --mbps=${MBPS} --loop=0 --stats=1 $REMOTE_PCAP_FILE" 2>&1 | \
