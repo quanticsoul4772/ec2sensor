@@ -15,7 +15,7 @@ SENSOR_IP=""
 UPGRADE=false
 FLEET_IP="192.168.22.239"
 FLEET_PORT="1443"
-ADMIN_PASSWORD="CoreL1ght!"  # Default password for testing
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"  # Set via environment or --password flag
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -41,7 +41,7 @@ Prepare EC2 sensor for P1 automation testing.
 Options:
   --upgrade           Apply latest updates before preparation
   --fleet-ip IP       Fleet manager IP (default: 192.168.22.239)
-  --password PASS     Admin password (default: CoreL1ght!)
+  --password PASS     Admin password (required, or set ADMIN_PASSWORD env var)
   -h, --help          Show this help
 
 Examples:
@@ -67,6 +67,12 @@ done
 if [ -z "$SENSOR_IP" ]; then
     echo "Error: sensor_ip required"
     echo "Usage: $0 <sensor_ip> [--upgrade] [--fleet-ip IP]"
+    exit 1
+fi
+
+if [ -z "$ADMIN_PASSWORD" ]; then
+    echo "Error: Admin password required"
+    echo "Set via: --password <password> or export ADMIN_PASSWORD='your_password'"
     exit 1
 fi
 
@@ -150,8 +156,8 @@ log_info ""
 
 # Step 3: Configure admin password
 log_info "[Step 3/7] Configuring admin password..."
-sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << 'EOF'
-sudo /opt/broala/bin/broala-config set security.user.admin.password='CoreL1ght!'
+sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SENSOR_IP" << EOF
+sudo /opt/broala/bin/broala-config set security.user.admin.password='$ADMIN_PASSWORD'
 sudo LC_ALL=en_US.utf8 LANG=en_US.utf8 /opt/broala/bin/broala-apply-config 2>&1 | grep -E "(ok=|changed=|failed=)" || true
 EOF
 log_info "OK: Admin password configured"
