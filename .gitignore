@@ -1,0 +1,51 @@
+# Sensitive files
+.env
+.env.*
+!.env.template
+
+# Log files
+logs/
+*.log
+
+# Backup files
+*.bak
+*.bak.*
+*~
+
+# SSH keys
+*.pem
+*.key
+id_*
+*_rsa
+known_hosts
+# SSH keys
+ec2_sensor_key*
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Test results and artifacts
+testing/test_results/*
+!testing/test_results/.gitkeep
+testing/test_data/*
+!testing/test_data/.gitkeep
+
+# OS files
+.DS_Store
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Temporary files
+*.tmp
+temp/

@@ -1,0 +1,85 @@
+# SmartPCAP Enabled Configuration
+# Sensor configured for SmartPCAP testing and PCAP analysis
+
+name: smartpcap_enabled
+description: Sensor with SmartPCAP fully enabled for PCAP testing
+extends: default
+
+# AWS Configuration (override for more disk space)
+aws:
+  ami_id: ami-0d2ba411d9fd7f677  # BroLin 28.0.6 release
+  instance_type: m6a.2xlarge
+  disk_space: 1000gb  # More space for PCAP storage
+  region: us-east-1
+
+# Sensor Metadata
+sensor:
+  team: platform
+  branch: testing
+  username: ${USER}
+  use_type: TEMPORARY
+
+# SmartPCAP Specific Configuration
+brolin_config:
+  # Base features
+  http.access.enable: 1
+  license.yara.enable: 1
+  license.suricata.enable: 1
+  license.smartpcap.enable: 1
+
+  # SmartPCAP specific settings
+  smartpcap.enable: 1
+  bro.pkgs.corelight.smartpcap.loaded: 1
+
+  # Optional: Configure SmartPCAP storage
+  # smartpcap.storage.path: /data/smartpcap
+  # smartpcap.max_storage_gb: 800
+
+# Additional Packages
+packages:
+  - base_testing_tools
+  - smartpcap_tools      # SmartPCAP testing utilities
+  - tcpreplay            # For PCAP replay testing
+
+# Snapshots
+snapshots:
+  create_baseline: true
+  baseline_name: "smartpcap-enabled-baseline"
+
+# Post-deployment Validation
+validation:
+  - command: "sudo broala-config get smartpcap.enable"
+    expected: "1"
+  - command: "sudo broala-config get bro.pkgs.corelight.smartpcap.loaded"
+    expected: "1"
+  - command: "ps -aux | grep spcap"
+    expected_contains: "spcap-esm"
+  - command: "sudo corelightctl sensor status"
+    expected: "running"
+
+# Test Scenarios
+test_scenarios:
+  - SmartPCAP query functionality
+  - PCAP capture and retrieval
+  - Storage management
+  - Query API testing
+  - iSCSI integration (if configured)
+
+# Notes
+notes: |
+  SmartPCAP Configuration for PCAP Testing
+
+  This configuration enables SmartPCAP with full functionality.
+
+  Expected Processes:
+  - spcap-esm: SmartPCAP event stream manager
+  - spcap-query-mgr: Query manager
+  - spcap-get-server: PCAP retrieval server
+
+  For iSCSI integration:
+  - Configure external iSCSI array
+  - Map volume to sensor's initiator IQN
+  - Mount at /data/sspcap/external
+
+  Default Mode: Local storage (tryout mode)
+  For production: Configure iSCSI or object store

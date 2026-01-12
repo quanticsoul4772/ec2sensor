@@ -1,0 +1,128 @@
+# Test Case Template
+# This template defines the structure for all test cases
+
+metadata:
+  # Test case identification
+  test_id: "TEST-001"
+  jira_ticket: "JIRA-1234"  # Link to JIRA issue
+  title: "Test Case Title"
+  description: "Detailed description of what this test validates"
+
+  # Test case metadata
+  priority: "high"  # high | medium | low
+  category: "functional"  # functional | performance | security | regression
+  tags:
+    - "feature-name"
+    - "component"
+
+  # Author and dates
+  author: "QA Engineer"
+  created: "2025-10-10"
+  last_updated: "2025-10-10"
+  version: "1.0"
+
+# Sensor configuration requirements
+sensor:
+  version_min: "28.0.0"  # Minimum sensor version
+  version_max: null  # Maximum sensor version (null = any)
+  required_features:
+    - "yara"
+    - "suricata"
+  required_packages: []
+
+# Test setup steps (executed before main test)
+setup:
+  - action: "create_snapshot"
+    params:
+      snapshot_name: "baseline"
+    description: "Create baseline snapshot for rollback"
+
+  - action: "enable_feature"
+    params:
+      feature: "yara"
+    description: "Ensure YARA is enabled"
+
+# Main test steps
+steps:
+  - step: 1
+    description: "Get initial configuration"
+    action: "ssh_command"
+    params:
+      command: "sudo corelightctl sensor status"
+    expected:
+      type: "contains"  # equals | contains | regex | exit_code
+      value: "running"
+    on_failure: "abort"  # abort | continue | skip_remaining
+
+  - step: 2
+    description: "Modify sensor configuration"
+    action: "set_config"
+    params:
+      key: "corelight.yara.enable"
+      value: "True"
+    expected:
+      type: "exit_code"
+      value: 0
+    on_failure: "abort"
+
+  - step: 3
+    description: "Verify configuration change"
+    action: "get_config"
+    params:
+      key: "corelight.yara.enable"
+    expected:
+      type: "equals"
+      value: "True"
+    on_failure: "abort"
+
+  - step: 4
+    description: "Wait for service restart"
+    action: "wait"
+    params:
+      duration: 30
+    expected:
+      type: "exit_code"
+      value: 0
+    on_failure: "continue"
+
+  - step: 5
+    description: "Validate service is running"
+    action: "ssh_command"
+    params:
+      command: "systemctl status zeek"
+    expected:
+      type: "contains"
+      value: "active (running)"
+    on_failure: "abort"
+
+# Test cleanup steps (executed after main test)
+cleanup:
+  - action: "restore_snapshot"
+    params:
+      snapshot_name: "baseline"
+    description: "Restore to baseline state"
+
+# Expected results
+expected_results:
+  overall_status: "passed"
+  steps_passed: 5
+  steps_failed: 0
+  duration_max: 300  # Maximum acceptable duration in seconds
+
+# Test validation criteria
+validation:
+  - type: "all_steps_passed"
+    description: "All test steps must pass"
+
+  - type: "duration_within_limit"
+    description: "Test must complete within 5 minutes"
+
+  - type: "no_service_errors"
+    description: "No service errors logged during test"
+
+# Notes and additional information
+notes: |
+  Additional notes about this test case:
+  - This is a template, copy and modify for actual test cases
+  - Reference JIRA ticket for detailed requirements
+  - Update version when test case logic changes

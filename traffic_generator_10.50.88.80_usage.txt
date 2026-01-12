@@ -1,0 +1,60 @@
+Traffic Generator Configuration for Sensor: 10.50.88.80
+================================================================
+
+Installation Date: Wed Dec 17 17:57:21 PST 2025
+Mode: simple
+Sensor Status: 
+
+Network Configuration:
+- eth0 (management): 10.50.88.80 - MAC: 0a:ff:de:a9:ee:63
+- eth1 (monitoring): MAC: 0a:ff:db:f6:41:6f
+
+USAGE INSTRUCTIONS:
+
+1. Connect to sensor:
+   ssh broala@10.50.88.80
+
+2. Generate traffic based on mode:
+
+   Simple Traffic Generator (socket-based):
+
+   # UDP traffic (100 pps, 10 seconds)
+   python3 /tmp/simple_traffic_generator.py -t <target_ip> -p 5555 --protocol udp -r 100 -D 10
+
+   # TCP traffic (50 pps, 30 seconds)
+   python3 /tmp/simple_traffic_generator.py -t <target_ip> -p 8080 --protocol tcp -r 50 -D 30
+
+   # HTTP requests (10 rps, 60 seconds)
+   python3 /tmp/simple_traffic_generator.py -t <target_ip> -p 80 --protocol http -r 10 -D 60
+
+   # Mixed TCP/UDP traffic (100 pps)
+   python3 /tmp/simple_traffic_generator.py -t <target_ip> -p 5555 --protocol mixed -r 100
+
+   # High throughput UDP (1000 pps, large packets)
+   python3 /tmp/simple_traffic_generator.py -t <target_ip> -p 9999 --protocol udp -r 1000 --size 8192 -D 30
+
+
+IMPORTANT NOTES:
+
+1. eth0 vs eth1:
+   - eth0 (management): Works with sensor services running, routable through AWS VPC
+   - eth1 (monitoring): Requires sensor services stopped, AWS networking may block inter-sensor traffic
+
+2. To stop sensor services (for eth1 usage):
+   ssh broala@10.50.88.80
+   sudo corelightctl sensor stop
+
+3. To restart sensor services:
+   sudo corelightctl sensor start
+
+4. AWS Networking Limitations:
+   - AWS source/destination checks may block non-standard traffic
+   - Calico/Kubernetes networking filters traffic between sensors
+   - For best results, use eth0 (management interface)
+
+5. Testing Traffic Reception:
+   On target sensor, start a listener:
+   python3 /tmp/simple_traffic_generator.py  # (upload listener script first)
+
+For more information, see: docs/TRAFFIC_GENERATION_GUIDE.md
+================================================================

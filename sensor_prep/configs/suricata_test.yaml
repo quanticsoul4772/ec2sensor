@@ -1,0 +1,97 @@
+# Suricata Testing Configuration
+# Sensor configured for Suricata rule testing and IDS validation
+
+name: suricata_test
+description: Sensor configured for Suricata rule testing and alert generation
+extends: default
+
+# AWS Configuration
+aws:
+  ami_id: ami-0d2ba411d9fd7f677  # BroLin 28.0.6 release
+  instance_type: m6a.2xlarge
+  disk_space: 500gb
+  region: us-east-1
+
+# Sensor Metadata
+sensor:
+  team: platform
+  branch: testing
+  username: ${USER}
+  use_type: TEMPORARY
+
+# Suricata + YARA Configuration
+brolin_config:
+  # Base features
+  http.access.enable: 1
+  license.yara.enable: 1
+  license.suricata.enable: 1
+  license.smartpcap.enable: 1
+
+  # Suricata specific
+  suricata.enable: 1
+
+  # YARA for file scanning
+  bro.pkgs.corelight.yara.loaded: 1
+
+# Additional Packages
+packages:
+  - base_testing_tools
+  - suricata_testing       # Suricata test utilities
+  - zeek_yara_integration  # YARA + Zeek integration
+  - tcpreplay              # Traffic replay for testing
+
+# Snapshots
+snapshots:
+  create_baseline: true
+  baseline_name: "suricata-test-baseline"
+
+# Post-deployment Validation
+validation:
+  - command: "sudo broala-config get suricata.enable"
+    expected: "1"
+  - command: "sudo broala-config get license.suricata.enable"
+    expected: "1"
+  - command: "sudo systemctl is-active suricata || sudo sv status suricata"
+    expected_contains: "active"
+  - command: "sudo suricata -V"
+    expected_contains: "Suricata"
+  - command: "sudo corelightctl sensor status"
+    expected: "running"
+
+# Test Scenarios
+test_scenarios:
+  - Suricata rule deployment
+  - Alert generation and validation
+  - Custom rule testing
+  - Alert correlation with Zeek
+  - YARA file scanning integration
+  - Performance under load
+
+# Default Test Rules Location
+test_data:
+  rules_path: /etc/suricata/rules/test
+  pcap_path: /tmp/test_pcaps
+  malware_samples: /tmp/malware_samples
+
+# Notes
+notes: |
+  Suricata IDS Testing Configuration
+
+  This configuration enables full Suricata functionality with YARA integration.
+
+  Configuration Files:
+  - Main config: /etc/suricata/suricata.yaml
+  - Rules: /etc/suricata/rules/
+  - Logs: /var/log/suricata/
+
+  Testing Workflow:
+  1. Deploy custom Suricata rules
+  2. Replay test PCAP with known threats
+  3. Verify alerts generated
+  4. Check alert correlation with Zeek logs
+  5. Test YARA scanning on extracted files
+
+  Useful Commands:
+  - sudo suricata -T: Test configuration
+  - sudo suricata-update: Update rule sets
+  - sudo tail -f /var/log/suricata/fast.log: Monitor alerts

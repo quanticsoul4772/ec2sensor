@@ -1,0 +1,7 @@
+uid="cd-c8-54-8f-3c-90-db-94" (__s_sensor=* or __s_monitor.total.mbps=*)
+| filtered_gbps := __s_sensor*8 / 1000/1000/1000
+| unfiltered_gbps := __s_monitor.total.mbps /1000
+| bucket(field=[uid], function=[max(filtered_gbps, as=Filtered_Gbps), max(unfiltered_gbps, as=UnFiltered_Gbps)], span=10m, limit=100)
+| filtered_delta := UnFiltered_Gbps - Filtered_Gbps
+| @timestamp := _bucket
+| timechart(uid, function=sum(filtered_delta), span=10m)

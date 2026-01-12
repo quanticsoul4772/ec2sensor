@@ -1,0 +1,27 @@
+{
+  "cached_at": "2025-10-10T11:24:44.265282",
+  "cache_key": "failure-TEST-002-448",
+  "data": {
+    "success": true,
+    "test_id": "TEST-002",
+    "error_message": "Configuration key not found: license.yara.enable",
+    "troubleshooting_steps": [
+      "Check sensor API version compatibility",
+      "Verify configuration keys match sensor version",
+      "Check service logs for detailed errors",
+      "Ensure sufficient wait time for service restart"
+    ],
+    "similar_issues": [
+      {
+        "title": "Configuration API changed in v28.4",
+        "description": "Modern sensors use different config keys",
+        "resolution": "Use corelight.* keys instead of license.*"
+      }
+    ],
+    "documentation": [
+      "https://docs.corelight.com/troubleshooting",
+      "https://docs.corelight.com/api-migration"
+    ],
+    "researched_at": "2025-10-10T11:24:44.265277"
+  }
+}

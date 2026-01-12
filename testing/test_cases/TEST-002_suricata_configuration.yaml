@@ -1,0 +1,128 @@
+# Test Case: Suricata Configuration Test
+# Validates Suricata feature configuration and status
+
+metadata:
+  test_id: "TEST-002"
+  jira_ticket: "CORE-5678"
+  title: "Suricata Configuration Validation"
+  description: |
+    This test validates that Suricata is properly configured and running
+    on the sensor. It checks configuration settings and service health.
+
+  priority: "high"
+  category: "functional"
+  tags:
+    - "suricata"
+    - "features"
+    - "validation"
+
+  author: "QA Team"
+  created: "2025-10-10"
+  last_updated: "2025-10-10"
+  version: "1.0"
+
+sensor:
+  version_min: "28.0.0"
+  version_max: null
+  required_features:
+    - "suricata"
+  required_packages: []
+
+# Test setup
+setup:
+  - action: "create_snapshot"
+    params:
+      snapshot_name: "suricata-test-baseline"
+    description: "Create baseline snapshot"
+
+  - action: "enable_feature"
+    params:
+      feature: "suricata"
+    description: "Ensure Suricata is enabled"
+
+# Main test steps
+steps:
+  - step: 1
+    description: "Verify Suricata is enabled in configuration"
+    action: "get_config"
+    params:
+      key: "corelight.suricata.enable"
+    expected:
+      type: "contains"
+      value: "True"
+    on_failure: "abort"
+
+  - step: 2
+    description: "Check Suricata service status"
+    action: "ssh_command"
+    params:
+      command: "sudo systemctl status suricata | grep 'Active:'"
+    expected:
+      type: "contains"
+      value: "active (running)"
+    on_failure: "abort"
+
+  - step: 3
+    description: "Verify Suricata logs are being generated"
+    action: "ssh_command"
+    params:
+      command: "sudo ls -la /var/log/suricata/ | grep eve.json"
+    expected:
+      type: "exit_code"
+      value: 0
+    on_failure: "abort"
+
+  - step: 4
+    description: "Check Suricata rules are loaded"
+    action: "ssh_command"
+    params:
+      command: "sudo suricatasc -c 'ruleset-stats' | grep 'rules loaded'"
+    expected:
+      type: "contains"
+      value: "rules loaded"
+    on_failure: "continue"
+
+  - step: 5
+    description: "Verify sensor overall status"
+    action: "ssh_command"
+    params:
+      command: "sudo corelightctl sensor status"
+    expected:
+      type: "contains"
+      value: "OK"
+    on_failure: "abort"
+
+# Test cleanup
+cleanup:
+  - action: "restore_snapshot"
+    params:
+      snapshot_name: "suricata-test-baseline"
+    description: "Restore to baseline state"
+
+# Expected results
+expected_results:
+  overall_status: "passed"
+  steps_passed: 5
+  steps_failed: 0
+  duration_max: 180
+
+# Test validation criteria
+validation:
+  - type: "all_steps_passed"
+    description: "All test steps must pass"
+
+  - type: "duration_within_limit"
+    description: "Test must complete within 3 minutes"
+
+notes: |
+  Test validates JIRA-5678: Suricata configuration and service health
+
+  Prerequisites:
+  - Sensor must have Suricata feature enabled
+  - Suricata service must be running
+
+  Expected behavior:
+  - Suricata is configured correctly
+  - Suricata service is running
+  - Suricata logs are being generated
+  - Rules are loaded
