@@ -6,7 +6,7 @@ import time
 
 # Sensor details
 sensor_name = "ec2-sensor-development-platform-mtraudt-371770263855184891"
-api_key = "5Y0NO7KW2P25ttWRQ8mXj8vtMSKFrLsN9Dh3woPL"
+api_key = "your_api_key_here"
 api_base = "https://w5f1gqx5g0.execute-api.us-east-1.amazonaws.com/prod/ec2_sensor"
 
 print(f"Force deleting permanent sensor: {sensor_name}")

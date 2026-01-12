@@ -21,7 +21,7 @@ log_init
 log_info "Checking seeding status for $SENSOR_IP..."
 
 SSH_USERNAME="${SSH_USERNAME:-broala}"
-SSH_PASSWORD="${SSH_PASSWORD:-This#ahNg9Pi}"
+SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
 echo ""
 echo "=========================================="

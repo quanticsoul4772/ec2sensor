@@ -252,7 +252,7 @@ EOF
     if [ "$auto_enable" = true ]; then
         log_info "Enabling features..."
         export SSH_USERNAME="${SSH_USERNAME:-broala}"
-        export SSH_PASSWORD="${SSH_PASSWORD:-This#ahNg9Pi}"
+        export SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
         # Get absolute paths
         WAIT_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/wait_for_sensor_ready.sh"
@@ -303,7 +303,7 @@ EOF
     log_info ""
     log_info "Waiting for SSH to be ready..."
     export SSH_USERNAME="${SSH_USERNAME:-broala}"
-    export SSH_PASSWORD="${SSH_PASSWORD:-This#ahNg9Pi}"
+    export SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
     WAIT_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/wait_for_sensor_ready.sh"
     if [ -f "$WAIT_SCRIPT" ]; then
@@ -322,7 +322,7 @@ EOF
     log_info ""
 
     SSH_USERNAME="${SSH_USERNAME:-broala}"
-    SSH_PASSWORD="${SSH_PASSWORD:-This#ahNg9Pi}"
+    SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
     if command -v sshpass &> /dev/null; then
         exec sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$sensor_ip"
@@ -964,7 +964,7 @@ case "$1" in
                 # Auto-connect
                 SSH_HOST="$ip"
                 SSH_USERNAME="${SSH_USERNAME:-broala}"
-                SSH_PASSWORD="${SSH_PASSWORD:-This#ahNg9Pi}"
+                SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
                 if command -v sshpass &> /dev/null; then
                     sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USERNAME@$SSH_HOST"

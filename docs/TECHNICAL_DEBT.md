@@ -39,7 +39,7 @@ Generated: 2025-12-15
 **Severity: HIGH (Security)**
 **Occurrences:** 11 files contain hardcoded credentials
 - `CoreL1ght!` (admin password)
-- `This#ahNg9Pi` (SSH password)
+- `your_ssh_password_here` (SSH password)
 - `192.168.22.239` (fleet manager IP)
 
 **Files affected:**

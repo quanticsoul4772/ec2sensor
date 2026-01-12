@@ -76,7 +76,7 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
 fi
 
 SSH_USERNAME="${SSH_USERNAME:-broala}"
-SSH_PASSWORD="${SSH_PASSWORD:-This#ahNg9Pi}"
+SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
 # Check SSH connectivity
 log_info "=== Preparing Sensor for P1 Automation: $SENSOR_IP ==="

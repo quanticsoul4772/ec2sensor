@@ -197,7 +197,7 @@ See `docs/architecture/EPHEMERAL_SENSOR_MODEL.md` for full rationale.
 
 **Standard Credentials** (all sensors):
 - Username: `broala`
-- Password: `This#ahNg9Pi`
+- Password: `your_ssh_password_here`
 
 **Authentication Fallback Order:**
 1. SSH key at `~/.ssh/ec2_sensor_key` (if exists, must be 600 permissions)

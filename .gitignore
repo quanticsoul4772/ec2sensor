@@ -3,6 +3,9 @@
 .env.*
 !.env.template
 
+# Sensor tracking (contains instance-specific data)
+.sensors
+
 # Log files
 logs/
 *.log

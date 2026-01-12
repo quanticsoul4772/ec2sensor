@@ -33,7 +33,7 @@ log_info "Speed: ${MBPS} Mbps"
 
 # SSH credentials
 SSH_USERNAME="${SSH_USERNAME:-broala}"
-SSH_PASSWORD="${SSH_PASSWORD:-This#ahNg9Pi}"
+SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
 # Remote paths
 REMOTE_PCAP_DIR="/tmp/pcaps"

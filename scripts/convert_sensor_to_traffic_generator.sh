@@ -30,7 +30,7 @@ log_info "Mode: $MODE"
 
 # SSH credentials
 SSH_USERNAME="${SSH_USERNAME:-broala}"
-SSH_PASSWORD="${SSH_PASSWORD:-This#ahNg9Pi}"
+SSH_PASSWORD="${SSH_PASSWORD:-${SSH_PASSWORD}}"
 
 # Step 1: Check sensor connectivity
 log_info "Checking sensor connectivity..."

@@ -210,7 +210,7 @@ ssh broala@<sensor-ip> "sudo /opt/broala/bin/broala-config get system.seeded"
 chmod 600 ~/.ssh/ec2_sensor_key
 
 # Test password auth
-sshpass -p 'This#ahNg9Pi' ssh broala@<sensor-ip>
+sshpass -p 'your_ssh_password_here' ssh broala@<sensor-ip>
 ```
 
 ### Logs
