@@ -52,3 +52,23 @@ testing/test_data/*
 # Temporary files
 *.tmp
 temp/
+
+# Removed from repo (kept locally)
+.agents/
+.codebuff/
+docs/
+mcp_integration/
+pcaps/
+scripts/
+sensor_prep/
+testing/
+workflows/
+CLAUDE.md
+TUI_ENHANCEMENT_PLAN.md
+UI_IMPROVEMENTS_SUMMARY.md
+knowledge.md
+compare_sensors.sh
+delete_sensor.py
+force_delete_sensor.py
+humio_query_v28.2.6.txt
+traffic_generator_*.txt
