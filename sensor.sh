@@ -942,6 +942,8 @@ while true; do
                                 "sudo corelightctl version 2>/dev/null | jq -r '.version // \"unknown\"'" 2>/dev/null)
 
                             if [ -n "$new_version" ] && [ "$new_version" != "unknown" ]; then
+                                # Show 100% progress bar before success message
+                                ui_progress_bar "$max_wait" "$max_wait" "Complete"
                                 echo ""
                                 if [ "$new_version" != "$current_version" ]; then
                                     ui_success "Upgraded from $current_version to $new_version" "Completed in $(ui_elapsed_time $elapsed)"
