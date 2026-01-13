@@ -366,8 +366,10 @@ while true; do
                 continue
                 ;;
             THEME)
-                # Cycle through themes
-                new_theme=$(ui_cycle_theme)
+                # Cycle through themes - call directly, not in subshell
+                # (subshell would lose the variable changes)
+                ui_cycle_theme > /dev/null
+                new_theme=$(ui_get_theme)
                 ui_info "Theme changed to: $new_theme"
                 sleep 0.5
                 continue
