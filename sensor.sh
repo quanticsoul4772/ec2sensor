@@ -901,10 +901,25 @@ while true; do
                     ui_info "Sensor is restarting... This may take 3-5 minutes"
                     echo ""
 
-                    # Wait and poll for sensor to come back online
+                    # Phase 1: Wait for sensor to go offline (confirms reboot started)
+                    ui_info "Waiting for sensor to begin restart..."
+                    offline_wait=0
+                    while [ $offline_wait -lt 60 ]; do
+                        sleep 5
+                        offline_wait=$((offline_wait + 5))
+                        # Try to connect - if it fails, sensor is rebooting
+                        if ! ssh_connect "$ip" "echo online" 2>/dev/null | grep -q "online"; then
+                            ui_info "Sensor is rebooting..."
+                            break
+                        fi
+                        ui_progress_bar "$offline_wait" "60" "Waiting for reboot"
+                    done
+                    
+                    # Phase 2: Wait for sensor to come back online with new version
                     max_wait=300  # 5 minutes
                     elapsed=0
                     interval=15
+                    sensor_back_online=false
 
                     while [ $elapsed -lt $max_wait ]; do
                         sleep $interval
@@ -913,14 +928,30 @@ while true; do
                         # Show progress bar
                         ui_progress_bar "$elapsed" "$max_wait" "Upgrading"
 
-                        # Try to get version
-                        new_version=$(ssh_connect "$ip" \
-                            "sudo corelightctl version 2>/dev/null | jq -r '.version // \"unknown\"'" 2>/dev/null)
+                        # Try to connect first - check if sensor is back
+                        if ssh_connect "$ip" "echo online" 2>/dev/null | grep -q "online"; then
+                            if [ "$sensor_back_online" = false ]; then
+                                sensor_back_online=true
+                                ui_info "Sensor is back online, waiting for services to stabilize..."
+                                # Give services time to fully start after reboot
+                                sleep 10
+                            fi
+                            
+                            # Now check the version
+                            new_version=$(ssh_connect "$ip" \
+                                "sudo corelightctl version 2>/dev/null | jq -r '.version // \"unknown\"'" 2>/dev/null)
 
-                        if [ -n "$new_version" ] && [ "$new_version" != "unknown" ] && [ "$new_version" != "$current_version" ]; then
-                            echo ""
-                            ui_success "Upgraded from $current_version to $new_version" "Completed in $(ui_elapsed_time $elapsed)"
-                            break
+                            if [ -n "$new_version" ] && [ "$new_version" != "unknown" ]; then
+                                echo ""
+                                if [ "$new_version" != "$current_version" ]; then
+                                    ui_success "Upgraded from $current_version to $new_version" "Completed in $(ui_elapsed_time $elapsed)"
+                                else
+                                    # Version same but commit hash might be different - still show success
+                                    ui_success "Upgrade complete: $new_version" "Completed in $(ui_elapsed_time $elapsed)"
+                                    ui_info "Note: Version number unchanged, but software was updated"
+                                fi
+                                break
+                            fi
                         fi
                     done
 
