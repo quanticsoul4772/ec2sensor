@@ -272,12 +272,12 @@ ui_header_box() {
     local pad_right=$((pad_total - pad_left))
     
     echo ""
-    # Top border
-    echo -e "\033[0;34m${BOX_TL}$(_ui_repeat "$BOX_H" $inner_width)${BOX_TR}\033[0m"
-    # Title line - use CYAN for title text (visible on all backgrounds)
-    printf "\033[0;34m${BOX_V}\033[0m%${pad_left}s\033[1;34m%s\033[0m%${pad_right}s\033[0;34m${BOX_V}\033[0m\n" "" "$display_text" ""
+    # Top border - use theme accent color
+    echo -e "${ACCENT}${BOX_TL}$(_ui_repeat "$BOX_H" $inner_width)${BOX_TR}${NC}"
+    # Title line - use theme colors
+    printf "${ACCENT}${BOX_V}${NC}%${pad_left}s${BOLD}${ACCENT}%s${NC}%${pad_right}s${ACCENT}${BOX_V}${NC}\n" "" "$display_text" ""
     # Bottom border
-    echo -e "\033[0;34m${BOX_BL}$(_ui_repeat "$BOX_H" $inner_width)${BOX_BR}\033[0m"
+    echo -e "${ACCENT}${BOX_BL}$(_ui_repeat "$BOX_H" $inner_width)${BOX_BR}${NC}"
     echo ""
 }
 
@@ -297,8 +297,8 @@ ui_section() {
     local title="$1"
 
     echo ""
-    echo -e "\033[1;34m  ${title}\033[0m"
-    echo -e "\033[0;34m  ────────────────────────────────────────────────────\033[0m"
+    echo -e "${BOLD}${ACCENT}  ${title}${NC}"
+    echo -e "${ACCENT}  ────────────────────────────────────────────────────${NC}"
 }
 
 # Display a breadcrumb navigation (consistent style with section headers)
@@ -318,9 +318,9 @@ ui_breadcrumb() {
         fi
     done
 
-    # Consistent style: title + underline
-    echo -e "\033[1;34m  ${output}\033[0m"
-    echo -e "\033[0;34m  ────────────────────────────────────────────────────\033[0m"
+    # Consistent style: title + underline - use theme colors
+    echo -e "${BOLD}${ACCENT}  ${output}${NC}"
+    echo -e "${ACCENT}  ────────────────────────────────────────────────────${NC}"
 }
 
 # ============================================
@@ -407,7 +407,7 @@ ui_format_health() {
     
     # Handle n/a or non-numeric values
     if [[ "$value" == "n/a" ]] || [[ -z "$value" ]] || [[ ! "$value" =~ ^[0-9]+\.?[0-9]*$ ]]; then
-        echo -e "\033[0;90m-\033[0m"
+        echo -e "${GRAY}-${NC}"
         return
     fi
     
@@ -417,11 +417,11 @@ ui_format_health() {
     
     # Apply color based on threshold
     if [ "$int_value" -lt 60 ]; then
-        echo -e "\033[0;32m${display_value}\033[0m"
+        echo -e "${GREEN}${display_value}${NC}"
     elif [ "$int_value" -lt 80 ]; then
-        echo -e "\033[1;33m${display_value}\033[0m"
+        echo -e "${YELLOW}${display_value}${NC}"
     else
-        echo -e "\033[0;31m${display_value}\033[0m"
+        echo -e "${RED}${display_value}${NC}"
     fi
 }
 
@@ -433,14 +433,14 @@ ui_format_health_padded() {
     # Handle loading state - show animated dots
     if [[ "$value" == "..." ]]; then
         local padded=$(printf '%6s' '...')
-        echo -e "\033[0;90m${padded}\033[0m"
+        echo -e "${GRAY}${padded}${NC}"
         return
     fi
     
     # Handle n/a or non-numeric values - show "    -" (6 chars, right-aligned dash)
     if [[ "$value" == "n/a" ]] || [[ -z "$value" ]] || [[ ! "$value" =~ ^[0-9]+\.?[0-9]*$ ]]; then
         local padded=$(printf '%6s' '-')
-        echo -e "\033[0;90m${padded}\033[0m"
+        echo -e "${GRAY}${padded}${NC}"
         return
     fi
     
@@ -450,11 +450,11 @@ ui_format_health_padded() {
     
     # Apply color based on threshold
     if [ "$int_value" -lt 60 ]; then
-        echo -e "\033[0;32m${display_value}\033[0m"
+        echo -e "${GREEN}${display_value}${NC}"
     elif [ "$int_value" -lt 80 ]; then
-        echo -e "\033[1;33m${display_value}\033[0m"
+        echo -e "${YELLOW}${display_value}${NC}"
     else
-        echo -e "\033[0;31m${display_value}\033[0m"
+        echo -e "${RED}${display_value}${NC}"
     fi
 }
 
@@ -546,8 +546,8 @@ ui_waiting_dots() {
 ui_menu_header() {
     local title="$1"
     echo ""
-    echo -e "\033[1;34m  ${title}\033[0m"
-    echo -e "\033[0;34m  ────────────────────────────────────────────────────\033[0m"
+    echo -e "${BOLD}${ACCENT}  ${title}${NC}"
+    echo -e "${ACCENT}  ────────────────────────────────────────────────────${NC}"
 }
 
 # Display formatted menu item (kubectl/docker style - clean and simple)
@@ -558,11 +558,11 @@ ui_menu_item() {
     local label="$3"
     local description="${4:-}"
     
-    # Simple clean format: [n] Label
-    echo -e "  \033[1;34m[$number]\033[0m  $label"
+    # Simple clean format: [n] Label - use theme colors
+    echo -e "  ${BOLD}${ACCENT}[$number]${NC}  $label"
 
     if [[ -n "$description" ]]; then
-        echo -e "       \033[0;90m$description\033[0m"
+        echo -e "       ${GRAY}$description${NC}"
     fi
 }
 
@@ -571,7 +571,7 @@ ui_menu_item() {
 ui_menu_footer() {
     local hint="$1"
     echo ""
-    echo -e "\033[0;90m  $hint\033[0m"
+    echo -e "${GRAY}  $hint${NC}"
 }
 
 # ============================================
@@ -749,15 +749,15 @@ ui_table_header_enhanced() {
     # Calculate table width: 2(indent) + 4 + 1 + 10 + 1 + 12 + 1 + 6 + 1 + 6 + 1 + 6 + 1 + 5 + 2 + 15 = 69
     local line="────────────────────────────────────────────────────────────────────"
     
-    # Top separator line
-    echo -e "\033[0;34m  ${line}\033[0m"
+    # Top separator line - use theme accent color
+    echo -e "${ACCENT}  ${line}${NC}"
     
     # Header row with fixed widths using printf
-    printf "  \033[1m%-4s %-10s %-12s %6s %6s %6s %5s  %-15s\033[0m\n" \
+    printf "  ${BOLD}%-4s %-10s %-12s %6s %6s %6s %5s  %-15s${NC}\n" \
            "ID" "SENSOR" "STATUS" "CPU%" "MEM%" "DISK%" "PODS" "IP"
     
     # Separator line
-    echo -e "\033[0;34m  ${line}\033[0m"
+    echo -e "${ACCENT}  ${line}${NC}"
 }
 
 # Display enhanced table row with resource metrics (kubectl/docker style)
@@ -780,7 +780,7 @@ ui_table_row_enhanced() {
     # Format pods
     local pods_fmt
     if [[ "$pods" == "n/a" ]] || [[ -z "$pods" ]]; then
-        pods_fmt="\033[0;90m$(printf '%5s' '-')\033[0m"
+        pods_fmt="${GRAY}$(printf '%5s' '-')${NC}"
     else
         pods_fmt=$(printf '%5s' "$pods")
     fi
@@ -791,13 +791,13 @@ ui_table_row_enhanced() {
     status_plain=$(echo -e "$status" | sed 's/\x1b\[[0-9;]*m//g')
     local status_padded=$(printf '%-12s' "$status_plain")
     
-    # Re-apply color to the padded status (keeps ● symbol)
+    # Re-apply color to the padded status (keeps ● symbol) - use theme colors
     local status_colored
     case "$status_plain" in
-        *RUNNING*) status_colored="\033[0;32m${status_padded}\033[0m" ;;
-        *PENDING*) status_colored="\033[1;33m${status_padded}\033[0m" ;;
-        *ERROR*)   status_colored="\033[0;31m${status_padded}\033[0m" ;;
-        *STOPPED*) status_colored="\033[1;33m${status_padded}\033[0m" ;;
+        *RUNNING*) status_colored="${GREEN}${status_padded}${NC}" ;;
+        *PENDING*) status_colored="${YELLOW}${status_padded}${NC}" ;;
+        *ERROR*)   status_colored="${RED}${status_padded}${NC}" ;;
+        *STOPPED*) status_colored="${YELLOW}${status_padded}${NC}" ;;
         *)         status_colored="$status_padded" ;;
     esac
     
@@ -810,7 +810,7 @@ ui_table_row_enhanced() {
 # Usage: ui_table_footer_enhanced
 ui_table_footer_enhanced() {
     local line="────────────────────────────────────────────────────────────────────"
-    echo -e "\033[0;34m  ${line}\033[0m"
+    echo -e "${ACCENT}  ${line}${NC}"
 }
 
 # Display list item (bullet or numbered)
@@ -1062,8 +1062,8 @@ ui_shortcuts_footer() {
     local g="$GRAY"
 
     echo ""
-    echo -e "\033[1;34m  Shortcuts\033[0m"
-    echo -e "\033[0;34m  ────────────────────────────────────────────────────\033[0m"
+    echo -e "${BOLD}${ACCENT}  Shortcuts${NC}"
+    echo -e "${ACCENT}  ────────────────────────────────────────────────────${NC}"
     echo -n "  "
 
     case "$context" in
@@ -1370,21 +1370,21 @@ ui_table_row_bulk_select() {
     # Format pods
     local pods_fmt
     if [[ "$pods" == "n/a" ]] || [[ -z "$pods" ]]; then
-        pods_fmt="\033[0;90m$(printf '%5s' '-')\033[0m"
+        pods_fmt="${GRAY}$(printf '%5s' '-')${NC}"
     else
         pods_fmt=$(printf '%5s' "$pods")
     fi
     
-    # Format status
+    # Format status - use theme colors
     local status_plain
     status_plain=$(echo -e "$status" | sed 's/\x1b\[[0-9;]*m//g')
     local status_padded=$(printf '%-12s' "$status_plain")
     local status_colored
     case "$status_plain" in
-        *RUNNING*) status_colored="\033[0;32m${status_padded}\033[0m" ;;
-        *PENDING*) status_colored="\033[1;33m${status_padded}\033[0m" ;;
-        *ERROR*)   status_colored="\033[0;31m${status_padded}\033[0m" ;;
-        *STOPPED*) status_colored="\033[1;33m${status_padded}\033[0m" ;;
+        *RUNNING*) status_colored="${GREEN}${status_padded}${NC}" ;;
+        *PENDING*) status_colored="${YELLOW}${status_padded}${NC}" ;;
+        *ERROR*)   status_colored="${RED}${status_padded}${NC}" ;;
+        *STOPPED*) status_colored="${YELLOW}${status_padded}${NC}" ;;
         *)         status_colored="$status_padded" ;;
     esac
     
@@ -1398,17 +1398,17 @@ ui_table_row_bulk_select() {
 ui_table_header_bulk_select() {
     local line="─────────────────────────────────────────────────────────────────────────"
     
-    echo -e "\033[0;34m  ${line}\033[0m"
-    printf "  \033[1m%-4s %-3s %-10s %-12s %6s %6s %6s %5s  %-15s\033[0m\n" \
+    echo -e "${ACCENT}  ${line}${NC}"
+    printf "  ${BOLD}%-4s %-3s %-10s %-12s %6s %6s %6s %5s  %-15s${NC}\n" \
            "SEL" "ID" "SENSOR" "STATUS" "CPU%" "MEM%" "DISK%" "PODS" "IP"
-    echo -e "\033[0;34m  ${line}\033[0m"
+    echo -e "${ACCENT}  ${line}${NC}"
 }
 
 # Display loading placeholder for lazy metrics
 # Usage: ui_loading_placeholder "Loading..."
 ui_loading_placeholder() {
     local message="${1:-Loading...}"
-    echo -e "\033[0;90m${message}\033[0m"
+    echo -e "${GRAY}${message}${NC}"
 }
 
 # ============================================
