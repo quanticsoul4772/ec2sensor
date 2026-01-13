@@ -7,6 +7,32 @@ source ec2sensor_ui.sh
 source ec2sensor_state.sh
 source .env 2>/dev/null || true
 
+# ============================================
+# Startup Validation
+# ============================================
+
+echo ""
+echo "  Initializing EC2 Sensor Manager..."
+
+# Validate startup requirements
+if ! validate_startup_requirements; then
+    echo ""
+    echo "  Startup validation failed. Please configure your environment."
+    echo "  Copy env.example to .env and fill in your credentials."
+    exit 1
+fi
+
+echo "  ✓ Configuration validated"
+
+# Test API connectivity (non-blocking - just sets status)
+if test_api_connectivity; then
+    echo "  ✓ API connected"
+else
+    echo "  ⚠ API offline - using cached data"
+fi
+
+echo ""
+
 # Graceful exit handler for Ctrl+C
 graceful_exit() {
     echo ""
@@ -88,6 +114,50 @@ ssh_connect_exec() {
 get_ssh_credentials
 check_ssh_requirements
 
+# Bulk selection state
+BULK_MODE=false
+SELECTED_SENSORS=()
+
+# Toggle sensor selection for bulk operations
+toggle_sensor_selection() {
+    local sensor="$1"
+    local found=false
+    local new_selection=()
+    
+    for s in "${SELECTED_SENSORS[@]}"; do
+        if [ "$s" = "$sensor" ]; then
+            found=true
+        else
+            new_selection+=("$s")
+        fi
+    done
+    
+    if [ "$found" = false ]; then
+        new_selection+=("$sensor")
+    fi
+    
+    SELECTED_SENSORS=("${new_selection[@]}")
+}
+
+# Check if sensor is selected
+is_sensor_selected() {
+    local sensor="$1"
+    for s in "${SELECTED_SENSORS[@]}"; do
+        [ "$s" = "$sensor" ] && return 0
+    done
+    return 1
+}
+
+# Select all sensors
+select_all_sensors() {
+    SELECTED_SENSORS=("${ACTIVE_SENSORS[@]}")
+}
+
+# Deselect all sensors
+deselect_all_sensors() {
+    SELECTED_SENSORS=()
+}
+
 # Load all sensors from file
 SENSORS_FILE=".sensors"
 SENSORS=()
@@ -144,7 +214,20 @@ while true; do
         ui_section "Available Sensors"
         echo ""
         
+        # Show offline mode indicator if API is down
+        if is_offline_mode; then
+            # Get the oldest cache age from stored sensors
+            oldest_cache_age=0
+            for sensor in "${SENSORS[@]}"; do
+                age=$(get_offline_cache_age "$sensor")
+                [ "$age" -gt "$oldest_cache_age" ] && oldest_cache_age="$age"
+            done
+            ui_offline_indicator "$LAST_API_ERROR" "$oldest_cache_age"
+            echo ""
+        fi
+        
         # Phase 1: Parallel API fetch for all sensors (with clearing spinner)
+        # Uses retry logic and falls back to offline cache
         echo -ne "  Scanning ${#SENSORS[@]} sensor(s)...\r"
         for sensor in "${SENSORS[@]}"; do
             fetch_sensor_async "$sensor" "$EC2_SENSOR_BASE_URL" "$EC2_SENSOR_API_KEY" &
@@ -282,6 +365,154 @@ while true; do
                 ui_show_help "main"
                 continue
                 ;;
+            THEME)
+                # Cycle through themes
+                new_theme=$(ui_cycle_theme)
+                ui_info "Theme changed to: $new_theme"
+                sleep 0.5
+                continue
+                ;;
+            MULTISELECT)
+                # Enter bulk operations mode
+                BULK_MODE=true
+                SELECTED_SENSORS=()
+                
+                # Bulk operations loop
+                while [ "$BULK_MODE" = true ]; do
+                    ui_header "BULK OPERATIONS" "Multi-Select"
+                    ui_breadcrumb "Home" "Bulk Operations"
+                    
+                    # Show offline indicator if needed
+                    if is_offline_mode; then
+                        oldest_cache_age=0
+                        for sensor in "${ACTIVE_SENSORS[@]}"; do
+                            age=$(get_offline_cache_age "$sensor")
+                            [ "$age" -gt "$oldest_cache_age" ] && oldest_cache_age="$age"
+                        done
+                        ui_offline_indicator "$LAST_API_ERROR" "$oldest_cache_age"
+                        echo ""
+                    fi
+                    
+                    ui_section "Select Sensors"
+                    echo "  Toggle selection by entering sensor number. Selected: ${#SELECTED_SENSORS[@]}"
+                    echo ""
+                    
+                    ui_table_header_bulk_select
+                    
+                    display_idx=0
+                    for sensor in "${ACTIVE_SENSORS[@]}"; do
+                        ((display_idx++))
+                        response=$(get_fetched_response "$sensor")
+                        
+                        status=$(echo "$response" | jq -r '.sensor_status // "unknown"' 2>/dev/null)
+                        ip=$(echo "$response" | jq -r '.sensor_ip // "no-ip"' 2>/dev/null)
+                        status_display="$(ui_status_icon "$status")"
+                        
+                        # Get cached metrics
+                        cpu="n/a"; mem="n/a"; disk="n/a"; pods="n/a"
+                        if [ "$status" = "running" ] && [ "$ip" != "no-ip" ]; then
+                            cached_metrics=$(get_cached_metrics "$sensor")
+                            if [ -n "$cached_metrics" ]; then
+                                IFS='|' read -r cpu mem disk pods <<< "$cached_metrics"
+                            fi
+                        fi
+                        
+                        sensor_short="${sensor##*-}"
+                        sensor_short="${sensor_short: -8}"
+                        
+                        is_selected=false
+                        is_sensor_selected "$sensor" && is_selected=true
+                        
+                        ui_table_row_bulk_select "$display_idx" "$sensor_short" "$status_display" \
+                            "$cpu" "$mem" "$disk" "$pods" "$ip" "$is_selected"
+                    done
+                    
+                    ui_table_footer_enhanced
+                    
+                    echo ""
+                    ui_menu_header "Bulk Actions"
+                    ui_menu_item "a" "" "Select ALL sensors"
+                    ui_menu_item "n" "" "Deselect all (NONE)"
+                    ui_menu_item "d" "" "DELETE selected (${#SELECTED_SENSORS[@]})"
+                    ui_menu_item "f" "" "Enable FEATURES on selected"
+                    ui_menu_item "b" "" "Back to main menu"
+                    
+                    ui_shortcuts_footer "bulk"
+                    
+                    bulk_choice=$(ui_read_choice_with_shortcuts "Toggle or action" 1 "${#ACTIVE_SENSORS[@]}" "bulk")
+                    
+                    case "$bulk_choice" in
+                        ALL)
+                            select_all_sensors
+                            ;;
+                        NEW|NONE)
+                            deselect_all_sensors
+                            ;;
+                        DELETE)
+                            if [ ${#SELECTED_SENSORS[@]} -eq 0 ]; then
+                                ui_warning "No sensors selected"
+                                sleep 1
+                                continue
+                            fi
+                            
+                            echo ""
+                            ui_warning "About to delete ${#SELECTED_SENSORS[@]} sensor(s):"
+                            for s in "${SELECTED_SENSORS[@]}"; do
+                                echo "    - ${s##*-}"
+                            done
+                            echo ""
+                            
+                            if ui_read_confirm "Delete these sensors permanently?" "This action cannot be undone"; then
+                                for s in "${SELECTED_SENSORS[@]}"; do
+                                    ui_info "Deleting ${s##*-}..."
+                                    curl -s -X DELETE "${EC2_SENSOR_BASE_URL}/${s}" -H "x-api-key: ${EC2_SENSOR_API_KEY}" > /dev/null
+                                    grep -v "^${s}$" "$SENSORS_FILE" > "${SENSORS_FILE}.tmp" 2>/dev/null || true
+                                    mv "${SENSORS_FILE}.tmp" "$SENSORS_FILE" 2>/dev/null || true
+                                done
+                                ui_success "Deleted ${#SELECTED_SENSORS[@]} sensor(s)"
+                                SELECTED_SENSORS=()
+                                invalidate_cache
+                                sleep 1
+                            fi
+                            ;;
+                        FEATURES)
+                            if [ ${#SELECTED_SENSORS[@]} -eq 0 ]; then
+                                ui_warning "No sensors selected"
+                                sleep 1
+                                continue
+                            fi
+                            
+                            echo ""
+                            ui_info "Enabling features on ${#SELECTED_SENSORS[@]} sensor(s)..."
+                            for s in "${SELECTED_SENSORS[@]}"; do
+                                response=$(get_fetched_response "$s")
+                                sensor_ip=$(echo "$response" | jq -r '.sensor_ip // ""' 2>/dev/null)
+                                if [ -n "$sensor_ip" ] && [ "$sensor_ip" != "null" ]; then
+                                    ui_info "Enabling features on ${s##*-} ($sensor_ip)..."
+                                    ./scripts/enable_sensor_features.sh "$sensor_ip" 2>/dev/null && \
+                                        ui_success "Features enabled on ${s##*-}" || \
+                                        ui_warning "Failed on ${s##*-}"
+                                fi
+                            done
+                            echo ""
+                            read -p "Press Enter to continue..." -r
+                            ;;
+                        BACK)
+                            BULK_MODE=false
+                            ;;
+                        HELP)
+                            ui_show_help "bulk"
+                            ;;
+                        *)
+                            # Numeric choice - toggle selection
+                            if [[ "$bulk_choice" =~ ^[0-9]+$ ]] && [ "$bulk_choice" -ge 1 ] && [ "$bulk_choice" -le "${#ACTIVE_SENSORS[@]}" ]; then
+                                toggle_sensor_selection "${ACTIVE_SENSORS[$((bulk_choice-1))]}"
+                            fi
+                            ;;
+                    esac
+                done
+                continue
+                ;;
         esac
 
         if [ "$choice" -eq "$((${#SENSORS[@]}+1))" ] 2>/dev/null; then
@@ -333,11 +564,12 @@ while true; do
             ui_menu_item 4 "" "Traffic Generator" "Configure and control traffic generation"
             ui_menu_item 5 "" "Upgrade sensor" "Update to latest version"
             ui_menu_item 6 "" "Delete sensor" "Permanently remove sensor" "$RED"
-            ui_menu_item 7 "" "Back to sensor list" "Return to main menu"
-            ui_menu_footer "Select operation [1-7]"
+            ui_menu_item 7 "" "Health Dashboard" "Detailed health & service view"
+            ui_menu_item 8 "" "Back to sensor list" "Return to main menu"
+            ui_menu_footer "Select operation [1-8]"
             ui_shortcuts_footer "operations"
 
-            op_choice=$(ui_read_choice_with_shortcuts "Select operation" 1 7 "operations")
+            op_choice=$(ui_read_choice_with_shortcuts "Select operation" 1 8 "operations")
 
             # Handle shortcut actions
             case "$op_choice" in
@@ -345,7 +577,57 @@ while true; do
                 FEATURES) op_choice=2 ;;
                 UPGRADE) op_choice=5 ;;
                 DELETE) op_choice=6 ;;
-                BACK) op_choice=7 ;;
+                BACK) op_choice=8 ;;
+                HEALTH)
+                    # Show detailed health dashboard
+                    if [ "$status" != "running" ] || [ -z "$ip" ] || [ "$ip" = "null" ] || [ "$ip" = "no-ip" ]; then
+                        ui_error "Sensor not ready for health check"
+                        sleep 1
+                        continue
+                    fi
+                    
+                    # Collect detailed metrics
+                    ui_info "Collecting detailed health data..."
+                    
+                    # Get metrics from cache or collect fresh
+                    cached_metrics=$(get_cached_metrics "$SELECTED_SENSOR")
+                    if [ -n "$cached_metrics" ]; then
+                        IFS='|' read -r cpu mem disk pods <<< "$cached_metrics"
+                    else
+                        metrics=$(collect_sensor_metrics "$ip")
+                        IFS='|' read -r cpu mem disk pods <<< "$metrics"
+                    fi
+                    
+                    # Get uptime
+                    uptime_str=$(ssh_connect "$ip" "uptime -p 2>/dev/null || uptime | awk '{print \$3,\$4}'" 2>/dev/null)
+                    [ -z "$uptime_str" ] && uptime_str="unknown"
+                    
+                    # Get service details
+                    services_raw=$(ssh_connect "$ip" "sudo corelightctl sensor status 2>/dev/null | grep -E '^[a-z]' | head -15" 2>/dev/null)
+                    
+                    # Display health dashboard
+                    clear
+                    ui_health_dashboard "$SELECTED_SENSOR" "$ip" "$status" "$cpu" "$mem" "$disk" "$pods" "$uptime_str" ""
+                    
+                    # Show services if available
+                    if [ -n "$services_raw" ]; then
+                        echo ""
+                        ui_section "Service Details"
+                        echo "$services_raw" | while read -r line; do
+                            svc=$(echo "$line" | awk '{print $1}')
+                            svc_status=$(echo "$line" | awk '{print $2}')
+                            if [ "$svc_status" = "Ok" ]; then
+                                echo "  $(_ui_color "$GREEN" "●") $svc: $svc_status"
+                            else
+                                echo "  $(_ui_color "$RED" "●") $svc: $svc_status"
+                            fi
+                        done
+                    fi
+                    
+                    echo ""
+                    read -p "  Press Enter to return to operations..." -r
+                    continue
+                    ;;
                 HELP)
                     ui_show_help "operations"
                     continue
@@ -685,6 +967,55 @@ while true; do
                 fi
                 ;;
             7)
+                # Health Dashboard
+                if [ "$status" != "running" ] || [ -z "$ip" ] || [ "$ip" = "null" ] || [ "$ip" = "no-ip" ]; then
+                    ui_error "Sensor not ready for health check"
+                    sleep 1
+                    continue
+                fi
+                
+                # Collect detailed metrics
+                ui_info "Collecting detailed health data..."
+                
+                # Get metrics from cache or collect fresh
+                cached_metrics=$(get_cached_metrics "$SELECTED_SENSOR")
+                if [ -n "$cached_metrics" ]; then
+                    IFS='|' read -r cpu mem disk pods <<< "$cached_metrics"
+                else
+                    metrics=$(collect_sensor_metrics "$ip")
+                    IFS='|' read -r cpu mem disk pods <<< "$metrics"
+                fi
+                
+                # Get uptime
+                uptime_str=$(ssh_connect "$ip" "uptime -p 2>/dev/null || uptime | awk '{print \$3,\$4}'" 2>/dev/null)
+                [ -z "$uptime_str" ] && uptime_str="unknown"
+                
+                # Get service details
+                services_raw=$(ssh_connect "$ip" "sudo corelightctl sensor status 2>/dev/null | grep -E '^[a-z]' | head -15" 2>/dev/null)
+                
+                # Display health dashboard
+                clear
+                ui_health_dashboard "$SELECTED_SENSOR" "$ip" "$status" "$cpu" "$mem" "$disk" "$pods" "$uptime_str" ""
+                
+                # Show services if available
+                if [ -n "$services_raw" ]; then
+                    echo ""
+                    ui_section "Service Details"
+                    echo "$services_raw" | while read -r line; do
+                        svc=$(echo "$line" | awk '{print $1}')
+                        svc_status=$(echo "$line" | awk '{print $2}')
+                        if [ "$svc_status" = "Ok" ]; then
+                            echo "  $(_ui_color "$GREEN" "●") $svc: $svc_status"
+                        else
+                            echo "  $(_ui_color "$RED" "●") $svc: $svc_status"
+                        fi
+                    done
+                fi
+                
+                echo ""
+                read -p "  Press Enter to return to operations..." -r
+                ;;
+            8)
                 # Back to sensor list
                 break
                 ;;

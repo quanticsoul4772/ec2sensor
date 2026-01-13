@@ -9,21 +9,116 @@
 #   ui_success "Operation completed"
 
 # ============================================
+# Color Theme Support
+# ============================================
+
+# Available themes: dark, light, minimal
+UI_THEME="${EC2SENSOR_THEME:-dark}"
+
+# ============================================
 # Color and Symbol Constants
 # ============================================
 
-# ANSI Color Codes (compatible with ec2sensor_logging.sh)
-readonly NC='\033[0m'           # No Color / Reset
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly CYAN='\033[0;34m'  # Using blue instead of cyan for better light background contrast
-readonly MAGENTA='\033[0;35m'
-readonly GRAY='\033[0;90m'
-readonly WHITE='\033[1;37m'
-readonly BOLD='\033[1m'
-readonly DIM='\033[2m'
+# Base ANSI codes
+_NC='\033[0m'           # No Color / Reset
+_BOLD='\033[1m'
+_DIM='\033[2m'
+
+# Theme-specific color definitions
+_init_theme_colors() {
+    case "$UI_THEME" in
+        light)
+            # Light theme - darker colors for white backgrounds
+            _RED='\033[0;31m'
+            _GREEN='\033[0;32m'
+            _YELLOW='\033[0;33m'      # Darker yellow for light bg
+            _BLUE='\033[0;34m'
+            _CYAN='\033[0;36m'
+            _MAGENTA='\033[0;35m'
+            _GRAY='\033[0;90m'
+            _WHITE='\033[0;30m'       # Dark text on light bg
+            _ACCENT='\033[0;34m'      # Blue accent
+            _HEADER_BG='\033[44m'     # Blue background
+            ;;
+        minimal)
+            # Minimal theme - no colors, just bold/dim
+            _RED='\033[1m'
+            _GREEN='\033[1m'
+            _YELLOW='\033[1m'
+            _BLUE='\033[1m'
+            _CYAN='\033[1m'
+            _MAGENTA='\033[1m'
+            _GRAY='\033[2m'
+            _WHITE='\033[1m'
+            _ACCENT='\033[1m'
+            _HEADER_BG=''
+            ;;
+        dark|*)
+            # Dark theme (default) - bright colors for dark backgrounds
+            _RED='\033[0;31m'
+            _GREEN='\033[0;32m'
+            _YELLOW='\033[1;33m'
+            _BLUE='\033[0;34m'
+            _CYAN='\033[0;34m'        # Using blue for better contrast
+            _MAGENTA='\033[0;35m'
+            _GRAY='\033[0;90m'
+            _WHITE='\033[1;37m'
+            _ACCENT='\033[0;34m'
+            _HEADER_BG=''
+            ;;
+    esac
+}
+
+# Initialize theme colors
+_init_theme_colors
+
+# Export color variables (readonly after initialization)
+NC="$_NC"
+RED="$_RED"
+GREEN="$_GREEN"
+YELLOW="$_YELLOW"
+BLUE="$_BLUE"
+CYAN="$_CYAN"
+MAGENTA="$_MAGENTA"
+GRAY="$_GRAY"
+WHITE="$_WHITE"
+BOLD="$_BOLD"
+DIM="$_DIM"
+ACCENT="$_ACCENT"
+
+# Function to switch theme at runtime
+# Usage: ui_set_theme "light"
+ui_set_theme() {
+    UI_THEME="$1"
+    _init_theme_colors
+    NC="$_NC"
+    RED="$_RED"
+    GREEN="$_GREEN"
+    YELLOW="$_YELLOW"
+    BLUE="$_BLUE"
+    CYAN="$_CYAN"
+    MAGENTA="$_MAGENTA"
+    GRAY="$_GRAY"
+    WHITE="$_WHITE"
+    ACCENT="$_ACCENT"
+}
+
+# Get current theme
+# Usage: current=$(ui_get_theme)
+ui_get_theme() {
+    echo "$UI_THEME"
+}
+
+# Cycle to next theme
+# Usage: ui_cycle_theme
+ui_cycle_theme() {
+    case "$UI_THEME" in
+        dark) ui_set_theme "light" ;;
+        light) ui_set_theme "minimal" ;;
+        minimal) ui_set_theme "dark" ;;
+    esac
+    echo "$UI_THEME"
+}
 
 # Box-drawing characters (Unicode for professional look)
 readonly BOX_TL="╭"        # Top-left corner (rounded)
@@ -69,6 +164,8 @@ UI_WIDTH="${COLUMNS:-80}"
 # Check for color support
 if [[ -n "$NO_COLOR" ]] || [[ ! -t 1 ]]; then
     UI_COLOR_ENABLED=false
+    # Force minimal theme if colors disabled
+    ui_set_theme "minimal"
 else
     UI_COLOR_ENABLED=true
 fi
@@ -333,6 +430,13 @@ ui_format_health() {
 ui_format_health_padded() {
     local value="$1"
     
+    # Handle loading state - show animated dots
+    if [[ "$value" == "..." ]]; then
+        local padded=$(printf '%6s' '...')
+        echo -e "\033[0;90m${padded}\033[0m"
+        return
+    fi
+    
     # Handle n/a or non-numeric values - show "    -" (6 chars, right-aligned dash)
     if [[ "$value" == "n/a" ]] || [[ -z "$value" ]] || [[ ! "$value" =~ ^[0-9]+\.?[0-9]*$ ]]; then
         local padded=$(printf '%6s' '-')
@@ -538,7 +642,11 @@ ui_read_choice_with_shortcuts() {
             b) echo "BACK"; return 0 ;;
             s) echo "START"; return 0 ;;
             x) echo "STOP"; return 0 ;;
-            '?'|h|help) echo "HELP"; return 0 ;;
+            m) echo "MULTISELECT"; return 0 ;;
+            t) echo "THEME"; return 0 ;;
+            h) echo "HEALTH"; return 0 ;;
+            a) echo "ALL"; return 0 ;;
+            '?'|help) echo "HELP"; return 0 ;;
         esac
 
         # Validate numeric and in range
@@ -964,6 +1072,10 @@ ui_shortcuts_footer() {
             echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "n")$(_ui_color "$g" "]ew")"
             echo -n "  "
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "m")$(_ui_color "$g" "]ulti-select")"
+            echo -n "  "
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "t")$(_ui_color "$g" "]heme")"
+            echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "q")$(_ui_color "$g" "]uit")"
             echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "?")$(_ui_color "$g" "]help")"
@@ -977,6 +1089,8 @@ ui_shortcuts_footer() {
             echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "d")$(_ui_color "$g" "]elete")"
             echo -n "  "
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "h")$(_ui_color "$g" "]ealth")"
+            echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "b")$(_ui_color "$g" "]ack")"
             echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "?")$(_ui_color "$g" "]help")"
@@ -989,6 +1103,17 @@ ui_shortcuts_footer() {
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "b")$(_ui_color "$g" "]ack")"
             echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "?")$(_ui_color "$g" "]help")"
+            ;;
+        bulk)
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "a")$(_ui_color "$g" "]ll")"
+            echo -n "  "
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "n")$(_ui_color "$g" "]one")"
+            echo -n "  "
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "d")$(_ui_color "$g" "]elete selected")"
+            echo -n "  "
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "f")$(_ui_color "$g" "]eatures")"
+            echo -n "  "
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "b")$(_ui_color "$g" "]ack")"
             ;;
     esac
     echo ""
@@ -1013,6 +1138,8 @@ ui_show_help() {
             ui_section "Main Menu Shortcuts"
             echo "  $(_ui_color "$CYAN" "r")       Refresh sensor list"
             echo "  $(_ui_color "$CYAN" "n")       Deploy new sensor"
+            echo "  $(_ui_color "$CYAN" "m")       Multi-select mode (bulk operations)"
+            echo "  $(_ui_color "$CYAN" "t")       Cycle color theme (dark/light/minimal)"
             echo "  $(_ui_color "$CYAN" "q")       Quit application"
             ;;
         operations)
@@ -1021,6 +1148,7 @@ ui_show_help() {
             echo "  $(_ui_color "$CYAN" "f")       Enable features (HTTP, YARA, etc.)"
             echo "  $(_ui_color "$CYAN" "u")       Upgrade sensor"
             echo "  $(_ui_color "$CYAN" "d")       Delete sensor"
+            echo "  $(_ui_color "$CYAN" "h")       Health dashboard (detailed view)"
             echo "  $(_ui_color "$CYAN" "b")       Back to sensor list"
             ;;
         traffic)
@@ -1029,6 +1157,15 @@ ui_show_help() {
             echo "  $(_ui_color "$CYAN" "x")       Stop traffic generation"
             echo "  $(_ui_color "$CYAN" "b")       Back to operations menu"
             ;;
+        bulk)
+            ui_section "Bulk Operations Shortcuts"
+            echo "  $(_ui_color "$CYAN" "a")       Select all sensors"
+            echo "  $(_ui_color "$CYAN" "n")       Deselect all sensors"
+            echo "  $(_ui_color "$CYAN" "1-9")     Toggle selection for sensor"
+            echo "  $(_ui_color "$CYAN" "d")       Delete selected sensors"
+            echo "  $(_ui_color "$CYAN" "f")       Enable features on selected"
+            echo "  $(_ui_color "$CYAN" "b")       Back to main menu"
+            ;;
     esac
 
     echo ""
@@ -1036,17 +1173,242 @@ ui_show_help() {
     echo "  • Shortcuts are case-insensitive (r = R)"
     echo "  • Press Enter on empty input to see hint"
     echo "  • Use Ctrl+C to exit at any time"
+    echo "  • Set EC2SENSOR_THEME=light for light terminals"
     echo ""
 
     ui_section "Environment Variables"
-    echo "  $(_ui_color "$GRAY" "SSH_USERNAME")    SSH user for sensor connections"
-    echo "  $(_ui_color "$GRAY" "SSH_PASSWORD")    SSH password (or use SSH keys)"
+    echo "  $(_ui_color "$GRAY" "SSH_USERNAME")         SSH user for sensor connections"
+    echo "  $(_ui_color "$GRAY" "SSH_PASSWORD")         SSH password (or use SSH keys)"
     echo "  $(_ui_color "$GRAY" "EC2_SENSOR_BASE_URL")  API endpoint URL"
     echo "  $(_ui_color "$GRAY" "EC2_SENSOR_API_KEY")   API authentication key"
+    echo "  $(_ui_color "$GRAY" "EC2SENSOR_THEME")      Color theme (dark/light/minimal)"
     echo ""
 
     echo "  Press any key to return..."
     read -n 1 -r
+}
+
+# ============================================
+# Sensor Health Dashboard
+# ============================================
+
+# Display detailed sensor health dashboard
+# Usage: ui_health_dashboard "sensor-name" "ip" "status" "cpu" "mem" "disk" "pods" "uptime" "services_json"
+ui_health_dashboard() {
+    local sensor_name="$1"
+    local ip="$2"
+    local status="$3"
+    local cpu="$4"
+    local mem="$5"
+    local disk="$6"
+    local pods="$7"
+    local uptime="${8:-unknown}"
+    local services="${9:-}"
+    
+    ui_header "SENSOR HEALTH DASHBOARD" "${sensor_name##*-}"
+    
+    # Overview section
+    ui_section "Overview"
+    ui_key_value "Sensor ID" "${sensor_name##*-}"
+    ui_key_value "IP Address" "$ip"
+    ui_key_value "Status" "$(ui_status_icon "$status")"
+    ui_key_value "Uptime" "$uptime"
+    
+    # Resource usage section with visual bars
+    echo ""
+    ui_section "Resource Usage"
+    
+    # CPU bar
+    local cpu_val=${cpu%.*}
+    [ "$cpu_val" = "n/a" ] && cpu_val=0
+    echo -n "  CPU:    "
+    _ui_resource_bar "$cpu_val" 100
+    echo " $(ui_format_health "$cpu")"
+    
+    # Memory bar
+    local mem_val=${mem%.*}
+    [ "$mem_val" = "n/a" ] && mem_val=0
+    echo -n "  Memory: "
+    _ui_resource_bar "$mem_val" 100
+    echo " $(ui_format_health "$mem")"
+    
+    # Disk bar
+    local disk_val=${disk%.*}
+    [ "$disk_val" = "n/a" ] && disk_val=0
+    echo -n "  Disk:   "
+    _ui_resource_bar "$disk_val" 100
+    echo " $(ui_format_health "$disk")"
+    
+    # Services section
+    echo ""
+    ui_section "Services"
+    if [ -n "$services" ] && [ "$services" != "{}" ]; then
+        echo "$services" | while IFS='|' read -r svc_name svc_status; do
+            [ -z "$svc_name" ] && continue
+            local icon
+            case "$svc_status" in
+                Ok|running|active) icon="$(_ui_color "$GREEN" "●")" ;;
+                *) icon="$(_ui_color "$RED" "●")" ;;
+            esac
+            echo "  $icon $svc_name: $svc_status"
+        done
+    else
+        ui_key_value "Running Services" "$pods"
+    fi
+    
+    # Network section (placeholder for future)
+    echo ""
+    ui_section "Quick Actions"
+    echo "  $(_ui_color "$CYAN" "[1]") SSH Connect    $(_ui_color "$CYAN" "[2]") View Logs    $(_ui_color "$CYAN" "[3]") Restart Services"
+    echo "  $(_ui_color "$CYAN" "[b]") Back to Operations"
+}
+
+# Helper: Draw a resource usage bar
+# Usage: _ui_resource_bar 75 100
+_ui_resource_bar() {
+    local value="$1"
+    local max="$2"
+    local width=20
+    
+    # Handle non-numeric
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        value=0
+    fi
+    
+    local filled=$((value * width / max))
+    [ $filled -gt $width ] && filled=$width
+    local empty=$((width - filled))
+    
+    # Color based on value
+    local color
+    if [ "$value" -lt 60 ]; then
+        color="$GREEN"
+    elif [ "$value" -lt 80 ]; then
+        color="$YELLOW"
+    else
+        color="$RED"
+    fi
+    
+    echo -n "["
+    echo -ne "$color"
+    printf '%*s' "$filled" '' | tr ' ' '█'
+    echo -ne "$NC"
+    printf '%*s' "$empty" '' | tr ' ' '░'
+    echo -n "]"
+}
+
+# Display offline mode indicator with reason and cache age
+# Usage: ui_offline_indicator "reason" "cache_age_seconds"
+# Example: ui_offline_indicator "Network unreachable" "120"
+ui_offline_indicator() {
+    local reason="${1:-API unreachable}"
+    local cache_age="${2:-}"
+    
+    # Format cache age as human-readable
+    local age_str=""
+    if [ -n "$cache_age" ] && [ "$cache_age" != "999999" ]; then
+        if [ "$cache_age" -lt 60 ]; then
+            age_str="cached ${cache_age}s ago"
+        elif [ "$cache_age" -lt 3600 ]; then
+            local mins=$((cache_age / 60))
+            age_str="cached ${mins}m ago"
+        elif [ "$cache_age" -lt 86400 ]; then
+            local hours=$((cache_age / 3600))
+            local mins=$(((cache_age % 3600) / 60))
+            age_str="cached ${hours}h ${mins}m ago"
+        else
+            local days=$((cache_age / 86400))
+            age_str="cached ${days}d ago"
+        fi
+    else
+        age_str="no cached data"
+    fi
+    
+    # Display with reason and age
+    echo -e "  $(_ui_color "$YELLOW" "⚠ OFFLINE MODE") - $(_ui_color "$RED" "$reason") $(_ui_color "$GRAY" "($age_str)")"
+}
+
+# Display API status indicator
+# Usage: ui_api_status true "Connected"
+ui_api_status() {
+    local online="$1"
+    local message="${2:-}"
+    
+    if [ "$online" = true ]; then
+        echo -e "  $(_ui_color "$GREEN" "● API Online") $(_ui_color "$GRAY" "$message")"
+    else
+        echo -e "  $(_ui_color "$RED" "● API Offline") $(_ui_color "$YELLOW" "$message")"
+    fi
+}
+
+# Display bulk selection table row
+# Usage: ui_table_row_bulk_select "1" "sensor" "status" "cpu" "mem" "disk" "pods" "ip" true/false
+ui_table_row_bulk_select() {
+    local id="$1"
+    local sensor="$2"
+    local status="$3"
+    local cpu="$4"
+    local mem="$5"
+    local disk="$6"
+    local pods="$7"
+    local ip="$8"
+    local selected="${9:-false}"
+    
+    # Selection indicator
+    local sel_indicator
+    if [ "$selected" = true ]; then
+        sel_indicator="$(_ui_color "$GREEN" "[✓]")"
+    else
+        sel_indicator="$(_ui_color "$GRAY" "[ ]")"
+    fi
+    
+    # Format health values
+    local cpu_fmt=$(ui_format_health_padded "$cpu")
+    local mem_fmt=$(ui_format_health_padded "$mem")
+    local disk_fmt=$(ui_format_health_padded "$disk")
+    
+    # Format pods
+    local pods_fmt
+    if [[ "$pods" == "n/a" ]] || [[ -z "$pods" ]]; then
+        pods_fmt="\033[0;90m$(printf '%5s' '-')\033[0m"
+    else
+        pods_fmt=$(printf '%5s' "$pods")
+    fi
+    
+    # Format status
+    local status_plain
+    status_plain=$(echo -e "$status" | sed 's/\x1b\[[0-9;]*m//g')
+    local status_padded=$(printf '%-12s' "$status_plain")
+    local status_colored
+    case "$status_plain" in
+        *RUNNING*) status_colored="\033[0;32m${status_padded}\033[0m" ;;
+        *PENDING*) status_colored="\033[1;33m${status_padded}\033[0m" ;;
+        *ERROR*)   status_colored="\033[0;31m${status_padded}\033[0m" ;;
+        *STOPPED*) status_colored="\033[1;33m${status_padded}\033[0m" ;;
+        *)         status_colored="$status_padded" ;;
+    esac
+    
+    # Print row with selection checkbox
+    printf "  %b %-3s %-10s %b %b %b %b %b  %-15s\n" \
+           "$sel_indicator" "$id" "$sensor" "$status_colored" "$cpu_fmt" "$mem_fmt" "$disk_fmt" "$pods_fmt" "$ip"
+}
+
+# Display bulk selection table header
+# Usage: ui_table_header_bulk_select
+ui_table_header_bulk_select() {
+    local line="─────────────────────────────────────────────────────────────────────────"
+    
+    echo -e "\033[0;34m  ${line}\033[0m"
+    printf "  \033[1m%-4s %-3s %-10s %-12s %6s %6s %6s %5s  %-15s\033[0m\n" \
+           "SEL" "ID" "SENSOR" "STATUS" "CPU%" "MEM%" "DISK%" "PODS" "IP"
+    echo -e "\033[0;34m  ${line}\033[0m"
+}
+
+# Display loading placeholder for lazy metrics
+# Usage: ui_loading_placeholder "Loading..."
+ui_loading_placeholder() {
+    local message="${1:-Loading...}"
+    echo -e "\033[0;90m${message}\033[0m"
 }
 
 # ============================================
@@ -1113,7 +1475,7 @@ export -f ui_success ui_error ui_warning ui_info ui_status_icon 2>/dev/null || t
 export -f ui_menu_header ui_menu_item ui_menu_footer 2>/dev/null || true
 export -f ui_table_header ui_table_row ui_list_item 2>/dev/null || true
 export -f ui_table_header_enhanced ui_table_row_enhanced ui_table_footer_enhanced 2>/dev/null || true
-export -f ui_format_health ui_health_value ui_header_box 2>/dev/null || true
+export -f ui_format_health ui_health_value ui_header_box ui_set_theme ui_get_theme ui_cycle_theme 2>/dev/null || true
 export -f ui_progress_bar ui_spinner ui_waiting_dots 2>/dev/null || true
 export -f ui_read_choice ui_read_confirm ui_read_text ui_read_password 2>/dev/null || true
 
