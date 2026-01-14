@@ -56,7 +56,9 @@ fi
 log_info "Port 22 is reachable"
 
 # Remote commands to run on the sensor
-REMOTE_COMMANDS='set -e
+# Using a function-based approach to avoid heredoc escaping issues
+REMOTE_COMMANDS='set +u
+set -e
 echo "Enabling sensor features and licenses..."
 for cmd in \
     "sudo /opt/broala/bin/broala-config set http.access.enable=1" \
@@ -76,13 +78,51 @@ for cmd in \
     fi
 done
 echo "Applying configuration..."
+
+# Get admin password for corelight-client authentication
+ADMIN_PASSWORD=$(sudo grep "password:" /etc/corelight/corelightctl.yaml | awk "{print \$2}")
+if [ -z "$ADMIN_PASSWORD" ]; then
+    echo "Failed to read admin password from corelightctl.yaml" >&2
+    exit 1
+fi
+echo "Got admin password for corelight-client authentication"
+
 # Configure corelight-client with default sensor address (required for broala-apply-config)
 # The Ansible playbook calls corelight-client internally and needs to know the sensor address
 export CORELIGHT_DEVICE="192.0.2.1:30443"
-if ! sudo -E LC_ALL=en_US.utf8 LANG=en_US.utf8 /opt/broala/bin/broala-apply-config -q; then
+
+# Create a wrapper for corelight-client that adds:
+# 1. --ssl-no-verify-certificate (for self-signed certs)
+# 2. -u admin -p <password> (for authentication)
+# 3. Strips --dynamic_backfill which is not supported in some versions
+# This is needed because broala-apply-config runs Ansible which calls corelight-client
+# without these options, causing SSL and authentication failures
+WRAPPER_DIR="/tmp/corelight-wrapper-$$"
+mkdir -p "$WRAPPER_DIR"
+cat > "$WRAPPER_DIR/corelight-client" << EOF
+#!/bin/bash
+# Wrapper to add SSL bypass, authentication, and filter unsupported args
+ARGS=()
+for arg in "\$@"; do
+    # Skip --dynamic_backfill which is not supported in some versions
+    if [[ "\$arg" != --dynamic_backfill* ]]; then
+        ARGS+=("\$arg")
+    fi
+done
+exec /usr/bin/corelight-client --ssl-no-verify-certificate -u admin -p $ADMIN_PASSWORD "\${ARGS[@]}"
+EOF
+chmod +x "$WRAPPER_DIR/corelight-client"
+export PATH="$WRAPPER_DIR:$PATH"
+
+echo "Using corelight-client wrapper for SSL bypass..."
+if ! sudo -E LC_ALL=en_US.utf8 LANG=en_US.utf8 PATH="$PATH" /opt/broala/bin/broala-apply-config -q; then
+    rm -rf "$WRAPPER_DIR" 2>/dev/null
     echo "Failed to apply configuration" >&2
     exit 1
 fi
+
+# Clean up wrapper
+rm -rf "$WRAPPER_DIR" 2>/dev/null
 echo "Features enabled successfully"'
 
 # Connect and enable features
