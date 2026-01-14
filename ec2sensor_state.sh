@@ -3,6 +3,21 @@
 # Manages sensor data cache, operation history, and session metrics
 
 # ============================================
+# Debug Mode Configuration
+# ============================================
+
+# Set EC2SENSOR_DEBUG=true to enable verbose debug output
+DEBUG_MODE="${EC2SENSOR_DEBUG:-false}"
+
+# Debug log function - only outputs when DEBUG_MODE is true
+# Usage: debug_log "message"
+debug_log() {
+    if [ "$DEBUG_MODE" = "true" ]; then
+        echo "[DEBUG $(date '+%H:%M:%S')] $1" >&2
+    fi
+}
+
+# ============================================
 # Session State Variables
 # ============================================
 
@@ -36,6 +51,8 @@ API_RETRY_DELAY=1  # seconds, will be doubled each retry (exponential backoff)
 # API status tracking
 API_ONLINE=true
 LAST_API_ERROR=""
+LAST_COMMAND_OUTPUT=""
+LAST_COMMAND_EXIT_CODE=0
 
 # SSH ControlMaster settings for connection reuse
 # Use short path to avoid Unix socket path length limit (104 chars on macOS)
@@ -699,9 +716,165 @@ export -f wait_for_fetches
 export -f get_fetched_response
 export -f is_metrics_cache_fresh
 export -f get_cached_metrics
+export -f debug_log
+export DEBUG_MODE
 
 # Set trap to clean up cache only on normal exit (not on Ctrl+C)
 trap cleanup_cache EXIT TERM
+
+# ============================================
+# Error Capture Functions
+# ============================================
+
+# Run command with error capture - captures output, exit code, and provides detailed error info
+# Usage: run_with_error_capture "description" "command" [args...]
+# Returns: Exit code of command, sets LAST_COMMAND_OUTPUT and LAST_COMMAND_EXIT_CODE
+# Example: 
+#   if ! run_with_error_capture "Feature enablement" ./scripts/enable_sensor_features.sh "$ip"; then
+#       echo "Error: $LAST_COMMAND_OUTPUT"
+#   fi
+run_with_error_capture() {
+    local description="$1"
+    shift
+    local cmd="$@"
+    
+    debug_log "Running: $description"
+    debug_log "Command: $cmd"
+    
+    # Capture both stdout and stderr
+    LAST_COMMAND_OUTPUT=$(eval "$cmd" 2>&1)
+    LAST_COMMAND_EXIT_CODE=$?
+    
+    if [ $LAST_COMMAND_EXIT_CODE -ne 0 ]; then
+        debug_log "Command failed with exit code $LAST_COMMAND_EXIT_CODE"
+        debug_log "Output: $LAST_COMMAND_OUTPUT"
+        return $LAST_COMMAND_EXIT_CODE
+    fi
+    
+    debug_log "Command succeeded"
+    return 0
+}
+
+# Get error details from last command
+# Usage: error_details=$(get_last_error_details)
+get_last_error_details() {
+    if [ -n "$LAST_COMMAND_OUTPUT" ]; then
+        # Truncate long output and clean up for display
+        echo "$LAST_COMMAND_OUTPUT" | head -5 | sed 's/^/  /'
+    else
+        echo "  No output captured"
+    fi
+}
+
+# Format error message with details
+# Usage: format_error_message "Operation failed" "$output" "$exit_code"
+format_error_message() {
+    local description="$1"
+    local output="${2:-No output}"
+    local exit_code="${3:-1}"
+    
+    echo "$description (exit code: $exit_code)"
+    if [ -n "$output" ] && [ "$output" != "No output" ]; then
+        echo "$output" | head -10 | sed 's/^/    /'
+    fi
+}
+
+# ============================================
+# SSH Error Diagnostics
+# ============================================
+
+# Diagnose SSH connection failure and return specific error message
+# Usage: error_msg=$(diagnose_ssh_error "ip_address")
+diagnose_ssh_error() {
+    local ip="$1"
+    local ssh_user="${SSH_USERNAME:-broala}"
+    
+    debug_log "Diagnosing SSH error for $ip"
+    
+    # Check if port 22 is reachable
+    if ! nc -z -w 3 "$ip" 22 2>/dev/null; then
+        echo "Port 22 not reachable on $ip - sensor may be offline or firewall blocking"
+        return 1
+    fi
+    
+    # Port is reachable, try SSH connection
+    local ssh_output
+    local ssh_control_opts=$(get_ssh_control_opts 2>/dev/null || echo "")
+    
+    if [ "${SSH_USE_KEYS:-}" = true ]; then
+        ssh_output=$(ssh $ssh_control_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=5 -o BatchMode=yes "$ssh_user@$ip" "echo ok" 2>&1)
+    elif command -v sshpass &> /dev/null && [ -n "${SSH_PASSWORD:-}" ]; then
+        ssh_output=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh $ssh_control_opts -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 "$ssh_user@$ip" "echo ok" 2>&1)
+    else
+        ssh_output=$(ssh $ssh_control_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=5 "$ssh_user@$ip" "echo ok" 2>&1)
+    fi
+    
+    if [ $? -eq 0 ] && echo "$ssh_output" | grep -q "ok"; then
+        echo "SSH connection successful (transient error?)"
+        return 0
+    fi
+    
+    # Check for specific error patterns
+    if echo "$ssh_output" | grep -qi "permission denied"; then
+        echo "SSH authentication failed - check SSH_PASSWORD or SSH keys for user '$ssh_user'"
+    elif echo "$ssh_output" | grep -qi "connection refused"; then
+        echo "SSH connection refused - sshd may not be running on $ip"
+    elif echo "$ssh_output" | grep -qi "connection timed out"; then
+        echo "SSH connection timed out - network issue or firewall"
+    elif echo "$ssh_output" | grep -qi "host key verification"; then
+        echo "SSH host key verification failed"
+    elif echo "$ssh_output" | grep -qi "no route to host"; then
+        echo "No route to host $ip - check network connectivity"
+    else
+        # Generic error with actual output
+        echo "SSH error: ${ssh_output:-Unknown error}"
+    fi
+    
+    return 1
+}
+
+# Test SSH connectivity with detailed diagnostics
+# Usage: if test_ssh_connection "ip"; then echo "connected"; fi
+test_ssh_connection() {
+    local ip="$1"
+    local ssh_user="${SSH_USERNAME:-broala}"
+    local ssh_control_opts=$(get_ssh_control_opts 2>/dev/null || echo "")
+    
+    debug_log "Testing SSH connection to $ip"
+    
+    local result
+    if [ "${SSH_USE_KEYS:-}" = true ]; then
+        result=$(ssh $ssh_control_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=5 -o BatchMode=yes "$ssh_user@$ip" "echo connected" 2>&1)
+    elif command -v sshpass &> /dev/null && [ -n "${SSH_PASSWORD:-}" ]; then
+        result=$(SSHPASS="$SSH_PASSWORD" sshpass -e ssh $ssh_control_opts -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 "$ssh_user@$ip" "echo connected" 2>&1)
+    else
+        result=$(ssh $ssh_control_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=5 "$ssh_user@$ip" "echo connected" 2>&1)
+    fi
+    
+    if echo "$result" | grep -q "connected"; then
+        debug_log "SSH connection to $ip successful"
+        return 0
+    fi
+    
+    debug_log "SSH connection to $ip failed: $result"
+    LAST_COMMAND_OUTPUT="$result"
+    return 1
+}
+
+# Export error capture functions (must be after function definitions)
+export -f run_with_error_capture
+export -f get_last_error_details
+export -f format_error_message
+export -f diagnose_ssh_error
+export -f test_ssh_connection
+export LAST_COMMAND_OUTPUT
+export LAST_COMMAND_EXIT_CODE
 
 # Initialize on load
 init_session_state
