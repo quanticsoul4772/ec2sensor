@@ -1093,6 +1093,8 @@ ui_shortcuts_footer() {
             echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "b")$(_ui_color "$g" "]ack")"
             echo -n "  "
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "q")$(_ui_color "$g" "]uit")"
+            echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "?")$(_ui_color "$g" "]help")"
             ;;
         traffic)
@@ -1101,6 +1103,8 @@ ui_shortcuts_footer() {
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "x")$(_ui_color "$g" "] stop")"
             echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "b")$(_ui_color "$g" "]ack")"
+            echo -n "  "
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "q")$(_ui_color "$g" "]uit")"
             echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "?")$(_ui_color "$g" "]help")"
             ;;
@@ -1114,6 +1118,8 @@ ui_shortcuts_footer() {
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "f")$(_ui_color "$g" "]eatures")"
             echo -n "  "
             echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "b")$(_ui_color "$g" "]ack")"
+            echo -n "  "
+            echo -n "$(_ui_color "$g" "[")$(_ui_color "$CYAN" "q")$(_ui_color "$g" "]uit")"
             ;;
     esac
     echo ""

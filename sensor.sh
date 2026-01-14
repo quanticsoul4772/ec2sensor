@@ -14,6 +14,11 @@ source .env 2>/dev/null || true
 echo ""
 echo "  Initializing EC2 Sensor Manager..."
 
+# Show debug mode status
+if [ "${EC2SENSOR_DEBUG:-false}" = "true" ]; then
+    echo "  [DEBUG MODE ENABLED - verbose output active]"
+fi
+
 # Validate startup requirements
 if ! validate_startup_requirements; then
     echo ""
@@ -444,6 +449,9 @@ while true; do
                     bulk_choice=$(ui_read_choice_with_shortcuts "Toggle or action" 1 "${#ACTIVE_SENSORS[@]}" "bulk")
                     
                     case "$bulk_choice" in
+                        QUIT)
+                            graceful_exit
+                            ;;
                         ALL)
                             select_all_sensors
                             ;;
@@ -493,7 +501,7 @@ while true; do
                                     ui_info "Enabling features on ${s##*-} ($sensor_ip)..."
                                     ./scripts/enable_sensor_features.sh "$sensor_ip" 2>/dev/null && \
                                         ui_success "Features enabled on ${s##*-}" || \
-                                        ui_warning "Failed on ${s##*-}"
+                                        ui_warning "Failed on ${s##*-}" "$(echo "$LAST_COMMAND_OUTPUT" | head -1)"
                                 fi
                             done
                             echo ""
@@ -575,6 +583,7 @@ while true; do
 
             # Handle shortcut actions
             case "$op_choice" in
+                QUIT) graceful_exit ;;
                 CONNECT) op_choice=1 ;;
                 FEATURES) op_choice=2 ;;
                 UPGRADE) op_choice=5 ;;
@@ -663,11 +672,23 @@ while true; do
 
                 echo ""
                 ui_info "Enabling features on $ip..."
-                ./scripts/enable_sensor_features.sh "$ip"
-                if [ $? -eq 0 ]; then
+                feature_output=$(./scripts/enable_sensor_features.sh "$ip" 2>&1)
+                feature_exit=$?
+                if [ $feature_exit -eq 0 ]; then
                     ui_success "Features enabled successfully"
                 else
-                    ui_error "Feature enablement failed" "Check logs for details"
+                    ui_error "Feature enablement failed" "Exit code: $feature_exit"
+                    # Show actual error output
+                    if [ -n "$feature_output" ]; then
+                        echo "  Error details:"
+                        echo "$feature_output" | tail -10 | sed 's/^/    /'
+                    fi
+                    # Provide SSH diagnostic if it looks like SSH failure
+                    if echo "$feature_output" | grep -qi "ssh\|connection\|permission denied\|timeout"; then
+                        echo ""
+                        echo "  SSH Diagnosis:"
+                        diagnose_ssh_error "$ip" | sed 's/^/    /'
+                    fi
                 fi
                 echo ""
                 read -p "Press Enter to continue..." -r
@@ -684,11 +705,23 @@ while true; do
 
                 echo ""
                 ui_info "Adding sensor to fleet manager..."
-                ./scripts/prepare_p1_automation.sh "$ip"
-                if [ $? -eq 0 ]; then
+                fleet_output=$(./scripts/prepare_p1_automation.sh "$ip" 2>&1)
+                fleet_exit=$?
+                if [ $fleet_exit -eq 0 ]; then
                     ui_success "Sensor added to fleet manager"
                 else
-                    ui_error "Fleet registration failed" "Check logs for details"
+                    ui_error "Fleet registration failed" "Exit code: $fleet_exit"
+                    # Show actual error output
+                    if [ -n "$fleet_output" ]; then
+                        echo "  Error details:"
+                        echo "$fleet_output" | tail -10 | sed 's/^/    /'
+                    fi
+                    # Provide SSH diagnostic if it looks like SSH failure
+                    if echo "$fleet_output" | grep -qi "ssh\|connection\|permission denied\|timeout"; then
+                        echo ""
+                        echo "  SSH Diagnosis:"
+                        diagnose_ssh_error "$ip" | sed 's/^/    /'
+                    fi
                 fi
                 echo ""
                 read -p "Press Enter to continue..." -r
@@ -722,6 +755,7 @@ while true; do
 
                     # Handle shortcut actions
                     case "$traffic_choice" in
+                        QUIT) graceful_exit ;;
                         START) traffic_choice=2 ;;
                         STOP) traffic_choice=3 ;;
                         BACK) traffic_choice=5 ;;
@@ -735,11 +769,23 @@ while true; do
                         1)
                             echo ""
                             ui_info "Configuring sensor as traffic generator..."
-                            ./scripts/convert_sensor_to_traffic_generator.sh "$ip" simple
-                            if [ $? -eq 0 ]; then
+                            traffic_config_output=$(./scripts/convert_sensor_to_traffic_generator.sh "$ip" simple 2>&1)
+                            traffic_config_exit=$?
+                            if [ $traffic_config_exit -eq 0 ]; then
                                 ui_success "Configuration complete"
                             else
-                                ui_error "Configuration failed" "Check logs for details"
+                                ui_error "Traffic generator configuration failed" "Exit code: $traffic_config_exit"
+                                # Show actual error output
+                                if [ -n "$traffic_config_output" ]; then
+                                    echo "  Error details:"
+                                    echo "$traffic_config_output" | tail -10 | sed 's/^/    /'
+                                fi
+                                # Provide SSH diagnostic if it looks like SSH failure
+                                if echo "$traffic_config_output" | grep -qi "ssh\|connection\|permission denied\|timeout"; then
+                                    echo ""
+                                    echo "  SSH Diagnosis:"
+                                    diagnose_ssh_error "$ip" | sed 's/^/    /'
+                                fi
                             fi
                             echo ""
                             read -p "Press Enter to continue..." -r
@@ -1008,9 +1054,25 @@ while true; do
                     fi
                 else
                     echo ""
-                    ui_error "Upgrade failed" "Check sensor logs for details"
+                    ui_error "Upgrade failed to start"
+                    # Show actual error output with better formatting
+                    if [ -n "$upgrade_output" ]; then
+                        echo "  Error details:"
+                        echo "$upgrade_output" | head -15 | sed 's/^/    /'
+                    fi
+                    # Check for specific error patterns
+                    if echo "$upgrade_output" | grep -qi "already.*running\|in progress"; then
+                        echo ""
+                        ui_warning "An upgrade may already be in progress"
+                    elif echo "$upgrade_output" | grep -qi "permission\|denied\|authentication"; then
+                        echo ""
+                        ui_warning "Authentication error - check admin password"
+                    elif echo "$upgrade_output" | grep -qi "network\|connection\|unreachable"; then
+                        echo ""
+                        ui_warning "Network connectivity issue - check sensor connectivity"
+                    fi
                     echo ""
-                    echo "  Output: $upgrade_output"
+                    ui_info "To check manually: ssh ${SSH_USERNAME}@${ip} 'corelight-client updates list'"
                 fi
 
                 echo ""
