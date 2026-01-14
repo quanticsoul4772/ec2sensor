@@ -902,24 +902,25 @@ while true; do
                     ui_info "The upgrade runs in the background - monitoring progress..."
                     echo ""
 
-                    # Wait a moment for upgrade to begin
-                    sleep 5
-                    
                     # Monitor the actual upgrade progress
                     max_wait=600  # 10 minutes max
                     elapsed=0
                     interval=10
                     last_status=""
                     upgrade_complete=false
+                    start_time=$(date +%s)
 
                     while [ $elapsed -lt $max_wait ]; do
-                        elapsed=$((elapsed + interval))
+                        # Sleep first, then check status
+                        sleep $interval
+                        elapsed=$(( $(date +%s) - start_time ))
+                        
+                        # Show progress bar with current status
+                        ui_progress_bar "$elapsed" "$max_wait" "Upgrading..."
                         
                         # Check if SSH is available
                         if ! ssh_connect "$ip" "echo online" 2>/dev/null | grep -q "online"; then
-                            # Sensor is rebooting - show waiting message
-                            ui_progress_bar "$elapsed" "$max_wait" "Rebooting..."
-                            sleep $interval
+                            # Sensor is rebooting - continue waiting
                             continue
                         fi
                         
@@ -928,31 +929,19 @@ while true; do
                         upgrade_running=$(ssh_connect "$ip" \
                             "pgrep -f 'dpkg|apt|update-system|corelight.*update' 2>/dev/null | head -1" 2>/dev/null)
                         
-                        # Also check corelight-client updates status if available
-                        update_status=$(ssh_connect "$ip" \
-                            "corelight-client -b 192.0.2.1:30443 --ssl-no-verify-certificate -u admin -p $ADMIN_PASSWORD updates status 2>/dev/null | grep -E 'progress|state|status' | head -3" 2>/dev/null)
-                        
                         # Check for any active installation/update processes
                         active_updates=$(ssh_connect "$ip" \
                             "ps aux 2>/dev/null | grep -E 'dpkg|apt-get|update|upgrade' | grep -v grep | wc -l" 2>/dev/null)
                         active_updates="${active_updates:-0}"
                         
                         if [ -n "$upgrade_running" ] || [ "$active_updates" -gt 0 ]; then
-                            # Upgrade still in progress
-                            if [ -n "$update_status" ] && [ "$update_status" != "$last_status" ]; then
-                                echo ""
-                                ui_info "Upgrade in progress..."
-                                echo "  $update_status" | head -2
-                                last_status="$update_status"
-                            fi
-                            ui_progress_bar "$elapsed" "$max_wait" "Installing updates..."
-                            sleep $interval
+                            # Upgrade still in progress - continue waiting
                             continue
                         fi
                         
-                        # No upgrade processes found - check if upgrade is complete
-                        # Wait a bit more to ensure all processes have finished
+                        # No upgrade processes found - wait a bit more then verify
                         sleep 5
+                        elapsed=$(( $(date +%s) - start_time ))
                         
                         # Double-check no upgrade processes
                         final_check=$(ssh_connect "$ip" \
@@ -967,7 +956,7 @@ while true; do
                             if [ -n "$new_version" ] && [ "$new_version" != "unknown" ]; then
                                 upgrade_complete=true
                                 # Show 100% progress bar before success message
-                                ui_progress_bar "$max_wait" "$max_wait" "Complete"
+                                ui_progress_bar "$elapsed" "$elapsed" "Complete"
                                 echo ""
                                 if [ "$new_version" != "$current_version" ]; then
                                     ui_success "Upgraded from $current_version to $new_version" "Completed in $(ui_elapsed_time $elapsed)"
@@ -978,9 +967,6 @@ while true; do
                                 break
                             fi
                         fi
-                        
-                        ui_progress_bar "$elapsed" "$max_wait" "Verifying..."
-                        sleep $interval
                     done
 
                     # Final verification if loop completed without success
