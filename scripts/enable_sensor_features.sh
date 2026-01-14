@@ -76,7 +76,10 @@ for cmd in \
     fi
 done
 echo "Applying configuration..."
-if ! sudo LC_ALL=en_US.utf8 LANG=en_US.utf8 /opt/broala/bin/broala-apply-config -q; then
+# Configure corelight-client with default sensor address (required for broala-apply-config)
+# The Ansible playbook calls corelight-client internally and needs to know the sensor address
+export CORELIGHT_DEVICE="192.0.2.1:30443"
+if ! sudo -E LC_ALL=en_US.utf8 LANG=en_US.utf8 /opt/broala/bin/broala-apply-config -q; then
     echo "Failed to apply configuration" >&2
     exit 1
 fi
