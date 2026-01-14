@@ -864,12 +864,38 @@ while true; do
 
                 # List available versions
                 ui_info "Checking available versions..."
-                available_versions=$(ssh_connect "$ip" \
-                    "corelight-client -b 192.0.2.1:30443 --ssl-no-verify-certificate -u admin -p $ADMIN_PASSWORD updates list 2>/dev/null | grep version" 2>/dev/null)
-
+                updates_output=$(ssh_connect "$ip" \
+                    "corelight-client -b 192.0.2.1:30443 --ssl-no-verify-certificate -u admin -p $ADMIN_PASSWORD updates list 2>&1" 2>/dev/null)
+                updates_exit_code=$?
+                
+                # Check for errors first
+                if [ $updates_exit_code -ne 0 ]; then
+                    echo ""
+                    ui_error "Failed to check for updates" "Command failed with exit code $updates_exit_code"
+                    echo "  Output: $updates_output"
+                    echo ""
+                    read -p "Press Enter to continue..." -r
+                    continue
+                fi
+                
+                # Check if updates list returned "No entries" (meaning no updates available)
+                if echo "$updates_output" | grep -q "No entries"; then
+                    echo ""
+                    ui_section "Available Versions"
+                    ui_success "Sensor is up to date!" "No newer versions available"
+                    ui_key_value "Current Version" "$current_version"
+                    echo ""
+                    read -p "Press Enter to continue..." -r
+                    continue
+                fi
+                
+                # Extract version lines from output
+                available_versions=$(echo "$updates_output" | grep version)
+                
                 if [ -z "$available_versions" ]; then
                     echo ""
-                    ui_error "Could not list available versions" "This may indicate an authentication issue or network problem"
+                    ui_warning "Unexpected response from updates list"
+                    echo "  Output: $updates_output"
                     echo ""
                     read -p "Press Enter to continue..." -r
                     continue
