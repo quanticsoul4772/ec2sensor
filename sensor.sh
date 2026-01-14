@@ -898,72 +898,100 @@ while true; do
                 if echo "$upgrade_output" | grep -q "success.*True"; then
                     ui_success "Upgrade started successfully"
                     echo ""
-                    ui_info "Sensor is restarting... This may take 3-5 minutes"
+                    ui_info "Sensor is upgrading... This may take 5-10 minutes"
+                    ui_info "The upgrade runs in the background - monitoring progress..."
                     echo ""
 
-                    # Phase 1: Wait for sensor to go offline (confirms reboot started)
-                    ui_info "Waiting for sensor to begin restart..."
-                    offline_wait=0
-                    while [ $offline_wait -lt 60 ]; do
-                        sleep 5
-                        offline_wait=$((offline_wait + 5))
-                        # Try to connect - if it fails, sensor is rebooting
-                        if ! ssh_connect "$ip" "echo online" 2>/dev/null | grep -q "online"; then
-                            ui_info "Sensor is rebooting..."
-                            break
-                        fi
-                        ui_progress_bar "$offline_wait" "60" "Waiting for reboot"
-                    done
+                    # Wait a moment for upgrade to begin
+                    sleep 5
                     
-                    # Phase 2: Wait for sensor to come back online with new version
-                    max_wait=300  # 5 minutes
+                    # Monitor the actual upgrade progress
+                    max_wait=600  # 10 minutes max
                     elapsed=0
-                    interval=15
-                    sensor_back_online=false
+                    interval=10
+                    last_status=""
+                    upgrade_complete=false
 
                     while [ $elapsed -lt $max_wait ]; do
-                        sleep $interval
                         elapsed=$((elapsed + interval))
-
-                        # Show progress bar
-                        ui_progress_bar "$elapsed" "$max_wait" "Upgrading"
-
-                        # Try to connect first - check if sensor is back
-                        if ssh_connect "$ip" "echo online" 2>/dev/null | grep -q "online"; then
-                            if [ "$sensor_back_online" = false ]; then
-                                sensor_back_online=true
-                                ui_info "Sensor is back online, waiting for services to stabilize..."
-                                # Give services time to fully start after reboot
-                                sleep 10
+                        
+                        # Check if SSH is available
+                        if ! ssh_connect "$ip" "echo online" 2>/dev/null | grep -q "online"; then
+                            # Sensor is rebooting - show waiting message
+                            ui_progress_bar "$elapsed" "$max_wait" "Rebooting..."
+                            sleep $interval
+                            continue
+                        fi
+                        
+                        # SSH is available - check actual upgrade status
+                        # Check for running upgrade processes (dpkg, apt, update scripts)
+                        upgrade_running=$(ssh_connect "$ip" \
+                            "pgrep -f 'dpkg|apt|update-system|corelight.*update' 2>/dev/null | head -1" 2>/dev/null)
+                        
+                        # Also check corelight-client updates status if available
+                        update_status=$(ssh_connect "$ip" \
+                            "corelight-client -b 192.0.2.1:30443 --ssl-no-verify-certificate -u admin -p $ADMIN_PASSWORD updates status 2>/dev/null | grep -E 'progress|state|status' | head -3" 2>/dev/null)
+                        
+                        # Check for any active installation/update processes
+                        active_updates=$(ssh_connect "$ip" \
+                            "ps aux 2>/dev/null | grep -E 'dpkg|apt-get|update|upgrade' | grep -v grep | wc -l" 2>/dev/null)
+                        active_updates="${active_updates:-0}"
+                        
+                        if [ -n "$upgrade_running" ] || [ "$active_updates" -gt 0 ]; then
+                            # Upgrade still in progress
+                            if [ -n "$update_status" ] && [ "$update_status" != "$last_status" ]; then
+                                echo ""
+                                ui_info "Upgrade in progress..."
+                                echo "  $update_status" | head -2
+                                last_status="$update_status"
                             fi
-                            
-                            # Now check the version
+                            ui_progress_bar "$elapsed" "$max_wait" "Installing updates..."
+                            sleep $interval
+                            continue
+                        fi
+                        
+                        # No upgrade processes found - check if upgrade is complete
+                        # Wait a bit more to ensure all processes have finished
+                        sleep 5
+                        
+                        # Double-check no upgrade processes
+                        final_check=$(ssh_connect "$ip" \
+                            "pgrep -f 'dpkg|apt|update-system' 2>/dev/null | wc -l" 2>/dev/null)
+                        final_check="${final_check:-0}"
+                        
+                        if [ "$final_check" -eq 0 ]; then
+                            # Get the new version
                             new_version=$(ssh_connect "$ip" \
                                 "sudo corelightctl version 2>/dev/null | jq -r '.version // \"unknown\"'" 2>/dev/null)
-
+                            
                             if [ -n "$new_version" ] && [ "$new_version" != "unknown" ]; then
+                                upgrade_complete=true
                                 # Show 100% progress bar before success message
                                 ui_progress_bar "$max_wait" "$max_wait" "Complete"
                                 echo ""
                                 if [ "$new_version" != "$current_version" ]; then
                                     ui_success "Upgraded from $current_version to $new_version" "Completed in $(ui_elapsed_time $elapsed)"
                                 else
-                                    # Version same but commit hash might be different - still show success
                                     ui_success "Upgrade complete: $new_version" "Completed in $(ui_elapsed_time $elapsed)"
                                     ui_info "Note: Version number unchanged, but software was updated"
                                 fi
                                 break
                             fi
                         fi
+                        
+                        ui_progress_bar "$elapsed" "$max_wait" "Verifying..."
+                        sleep $interval
                     done
 
                     # Final verification if loop completed without success
-                    if [ $elapsed -ge $max_wait ]; then
+                    if [ "$upgrade_complete" = false ]; then
                         echo ""
-                        ui_warning "Verification timeout after $(ui_elapsed_time $max_wait)" "The upgrade may still be in progress"
+                        ui_warning "Verification timeout after $(ui_elapsed_time $max_wait)"
+                        ui_info "The upgrade may still be in progress."
                         echo ""
-                        ui_info "To verify manually:"
+                        ui_info "To check upgrade status manually:"
                         echo "    ssh ${SSH_USERNAME}@${ip}"
+                        echo "    ps aux | grep -E 'dpkg|apt|update'"
                         echo "    sudo corelightctl version"
                     fi
                 else
