@@ -719,8 +719,19 @@ export -f get_cached_metrics
 export -f debug_log
 export DEBUG_MODE
 
-# Set trap to clean up cache only on normal exit (not on Ctrl+C)
-trap cleanup_cache EXIT TERM
+# Store main process PID to prevent subshells from cleaning up
+MAIN_PID=$$
+
+# Cleanup only runs in main process (not background subshells)
+# Background jobs inherit traps, so without this check they would delete the cache when they exit
+safe_cleanup_cache() {
+    if [ "$$" = "$MAIN_PID" ]; then
+        cleanup_cache
+    fi
+}
+
+# Set trap to clean up cache only on normal exit from main process
+trap safe_cleanup_cache EXIT TERM
 
 # ============================================
 # Error Capture Functions
