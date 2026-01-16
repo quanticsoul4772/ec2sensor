@@ -724,8 +724,11 @@ MAIN_PID=$$
 
 # Cleanup only runs in main process (not background subshells)
 # Background jobs inherit traps, so without this check they would delete the cache when they exit
+# NOTE: Must use $BASHPID (actual process PID) not $$ (always parent PID even in subshells)
 safe_cleanup_cache() {
-    if [ "$$" = "$MAIN_PID" ]; then
+    # $BASHPID gives actual PID of current process, $$ always gives parent's PID
+    local current_pid="${BASHPID:-$$}"
+    if [ "$current_pid" = "$MAIN_PID" ]; then
         cleanup_cache
     fi
 }
