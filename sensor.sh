@@ -917,8 +917,20 @@ while true; do
                 # Check for errors first
                 if [ $updates_exit_code -ne 0 ]; then
                     echo ""
-                    ui_error "Failed to check for updates" "Command failed with exit code $updates_exit_code"
-                    echo "  Output: $updates_output"
+                    # Detect specific error: API service not running
+                    if echo "$updates_output" | grep -q "URL not pointing to API base address"; then
+                        ui_error "Sensor API service is not running" "The internal API at 192.0.2.1:30443 is unreachable"
+                        echo ""
+                        echo "  This sensor's API service appears to be down."
+                        echo "  To diagnose, SSH to the sensor and run:"
+                        echo "    sudo corelightctl sensor status"
+                        echo "    sudo kubectl get pods -A | grep api"
+                        echo ""
+                        echo "  You may need to restart the sensor or contact support."
+                    else
+                        ui_error "Failed to check for updates" "Command failed with exit code $updates_exit_code"
+                        echo "  Output: $updates_output"
+                    fi
                     echo ""
                     read -p "Press Enter to continue..." -r
                     continue
