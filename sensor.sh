@@ -878,9 +878,15 @@ while true; do
                 ui_breadcrumb "Home" "Sensors" "${SELECTED_SENSOR##*-}" "Upgrade"
 
                 # Get admin password from sensor's corelightctl.yaml
-                ui_info "Reading admin password from sensor..."
+                ui_info "Reading sensor configuration..."
                 ADMIN_PASSWORD=$(ssh_connect "$ip" \
-                    "sudo grep 'password:' /etc/corelight/corelightctl.yaml 2>/dev/null | awk '{print \$2}'" 2>/dev/null)
+                    "sudo grep -A5 'api:' /etc/corelight/corelightctl.yaml 2>/dev/null | grep password | awk '{print \$2}'" 2>/dev/null)
+
+                if [ -z "$ADMIN_PASSWORD" ]; then
+                    # Fallback to old method
+                    ADMIN_PASSWORD=$(ssh_connect "$ip" \
+                        "sudo grep 'password:' /etc/corelight/corelightctl.yaml 2>/dev/null | awk '{print \$2}'" 2>/dev/null)
+                fi
 
                 if [ -z "$ADMIN_PASSWORD" ]; then
                     echo ""
@@ -890,10 +896,30 @@ while true; do
                     continue
                 fi
 
-                # Get current version
+                # Detect release channel (dev/testing/release)
+                release_channel=$(ssh_connect "$ip" \
+                    "sudo grep 'release_channel:' /etc/corelight/corelightctl.yaml 2>/dev/null | awk '{print \$2}'" 2>/dev/null)
+                release_channel="${release_channel:-testing}"
+                
+                # Map channel to brolin repository name
+                case "$release_channel" in
+                    dev|development) brolin_repo="brolin-development" ;;
+                    testing) brolin_repo="brolin-testing" ;;
+                    release|stable) brolin_repo="brolin-release" ;;
+                    *) brolin_repo="brolin-testing" ;;
+                esac
+
+                # Get current version using corelight-client information get
                 ui_info "Checking current version..."
-                current_version=$(ssh_connect "$ip" \
-                    "sudo corelightctl version 2>/dev/null | jq -r '.version // \"unknown\"'" 2>/dev/null)
+                sensor_info=$(ssh_connect "$ip" \
+                    "corelight-client -b 192.0.2.1:30443 --ssl-no-verify-certificate -u admin -p $ADMIN_PASSWORD information get 2>&1" 2>/dev/null)
+                
+                # Extract version from sensor info or fallback to corelightctl
+                current_version=$(echo "$sensor_info" | grep -i version | head -1 | awk '{print $NF}' 2>/dev/null)
+                if [ -z "$current_version" ] || [ "$current_version" = "unknown" ]; then
+                    current_version=$(ssh_connect "$ip" \
+                        "sudo corelightctl version 2>/dev/null | jq -r '.version // \"unknown\"'" 2>/dev/null)
+                fi
 
                 if [ -z "$current_version" ] || [ "$current_version" = "unknown" ]; then
                     echo ""
@@ -904,8 +930,10 @@ while true; do
                 fi
 
                 echo ""
-                ui_section "Version Information"
+                ui_section "Sensor Information"
                 ui_key_value "Current Version" "$current_version"
+                ui_key_value "Release Channel" "$release_channel"
+                ui_key_value "Repository" "$brolin_repo"
                 echo ""
 
                 # List available versions
@@ -940,151 +968,229 @@ while true; do
                 if echo "$updates_output" | grep -q "No entries"; then
                     echo ""
                     ui_section "Available Versions"
-                    ui_success "Sensor is up to date!" "No newer versions available"
+                    ui_success "Sensor is up to date!" "No newer versions available via corelight-client"
                     ui_key_value "Current Version" "$current_version"
                     echo ""
-                    read -p "Press Enter to continue..." -r
-                    continue
+                    ui_info "To upgrade to a specific version, use option [2] below."
                 fi
                 
                 # Extract version lines from output
                 available_versions=$(echo "$updates_output" | grep version)
                 
-                if [ -z "$available_versions" ]; then
+                if [ -n "$available_versions" ]; then
                     echo ""
-                    ui_warning "Unexpected response from updates list"
-                    echo "  Output: $updates_output"
-                    echo ""
-                    read -p "Press Enter to continue..." -r
-                    continue
-                fi
-
-                echo ""
-                ui_section "Available Versions"
-                echo "$available_versions"
-                echo ""
-
-                # Confirm upgrade
-                if ! ui_read_confirm "Proceed with upgrade to latest version?" "Sensor will restart and be unavailable for 2-3 minutes"; then
-                    echo ""
-                    ui_warning "Upgrade cancelled"
-                    echo ""
-                    read -p "Press Enter to continue..." -r
-                    continue
-                fi
-
-                # Apply upgrade
-                echo ""
-                ui_info "Starting upgrade..."
-                upgrade_output=$(ssh_connect "$ip" \
-                    "corelight-client -b 192.0.2.1:30443 --ssl-no-verify-certificate -u admin -p $ADMIN_PASSWORD updates apply 2>&1" 2>/dev/null)
-
-                if echo "$upgrade_output" | grep -q "success.*True"; then
-                    ui_success "Upgrade started successfully"
-                    echo ""
-                    ui_info "Sensor is upgrading... This may take 5-10 minutes"
-                    ui_info "The upgrade runs in the background - monitoring progress..."
-                    echo ""
-
-                    # Monitor the actual upgrade progress
-                    max_wait=600  # 10 minutes max
-                    elapsed=0
-                    interval=10
-                    last_status=""
-                    upgrade_complete=false
-                    start_time=$(date +%s)
-
-                    while [ $elapsed -lt $max_wait ]; do
-                        # Sleep first, then check status
-                        sleep $interval
-                        elapsed=$(( $(date +%s) - start_time ))
-                        
-                        # Show progress bar with current status
-                        ui_progress_bar "$elapsed" "$max_wait" "Upgrading..."
-                        
-                        # Check if SSH is available
-                        if ! ssh_connect "$ip" "echo online" 2>/dev/null | grep -q "online"; then
-                            # Sensor is rebooting - continue waiting
-                            continue
-                        fi
-                        
-                        # SSH is available - check actual upgrade status
-                        # Check for running upgrade processes (dpkg, apt, update scripts)
-                        upgrade_running=$(ssh_connect "$ip" \
-                            "pgrep -f 'dpkg|apt|update-system|corelight.*update' 2>/dev/null | head -1" 2>/dev/null)
-                        
-                        # Check for any active installation/update processes
-                        active_updates=$(ssh_connect "$ip" \
-                            "ps aux 2>/dev/null | grep -E 'dpkg|apt-get|update|upgrade' | grep -v grep | wc -l" 2>/dev/null)
-                        active_updates="${active_updates:-0}"
-                        
-                        if [ -n "$upgrade_running" ] || [ "$active_updates" -gt 0 ]; then
-                            # Upgrade still in progress - continue waiting
-                            continue
-                        fi
-                        
-                        # No upgrade processes found - wait a bit more then verify
-                        sleep 5
-                        elapsed=$(( $(date +%s) - start_time ))
-                        
-                        # Double-check no upgrade processes
-                        final_check=$(ssh_connect "$ip" \
-                            "pgrep -f 'dpkg|apt|update-system' 2>/dev/null | wc -l" 2>/dev/null)
-                        final_check="${final_check:-0}"
-                        
-                        if [ "$final_check" -eq 0 ]; then
-                            # Get the new version
-                            new_version=$(ssh_connect "$ip" \
-                                "sudo corelightctl version 2>/dev/null | jq -r '.version // \"unknown\"'" 2>/dev/null)
-                            
-                            if [ -n "$new_version" ] && [ "$new_version" != "unknown" ]; then
-                                upgrade_complete=true
-                                # Show 100% progress bar before success message
-                                ui_progress_bar "$elapsed" "$elapsed" "Complete"
-                                echo ""
-                                if [ "$new_version" != "$current_version" ]; then
-                                    ui_success "Upgraded from $current_version to $new_version" "Completed in $(ui_elapsed_time $elapsed)"
-                                else
-                                    ui_success "Upgrade complete: $new_version" "Completed in $(ui_elapsed_time $elapsed)"
-                                    ui_info "Note: Version number unchanged, but software was updated"
-                                fi
-                                break
-                            fi
-                        fi
+                    ui_section "Available Versions (via corelight-client)"
+                    echo "$available_versions" | while read -r line; do
+                        echo "    $line"
                     done
+                fi
 
-                    # Final verification if loop completed without success
-                    if [ "$upgrade_complete" = false ]; then
+                echo ""
+                ui_menu_header "Upgrade Options"
+                ui_menu_item 1 "" "Upgrade to LATEST version" "corelight-client updates apply"
+                ui_menu_item 2 "" "Upgrade to SPECIFIC version" "broala-update-repository"
+                ui_menu_item 3 "" "Back" "Return to operations menu"
+                ui_menu_footer "Select upgrade option [1-3]"
+
+                echo -ne "$(_ui_color "$BOLD" "  Select upgrade option [1-3]: ")" 
+                read -r upgrade_option
+
+                upgrade_started=false
+                case "$upgrade_option" in
+                    1)
+                        # Upgrade to latest using corelight-client updates apply
+                        if echo "$updates_output" | grep -q "No entries"; then
+                            echo ""
+                            ui_warning "No updates available via corelight-client"
+                            ui_info "Use option [2] to upgrade to a specific version instead."
+                            echo ""
+                            read -p "Press Enter to continue..." -r
+                            continue
+                        fi
+
                         echo ""
-                        ui_warning "Verification timeout after $(ui_elapsed_time $max_wait)"
-                        ui_info "The upgrade may still be in progress."
+                        if ! ui_read_confirm "Proceed with upgrade to latest version?" "Sensor will restart and be unavailable for 2-3 minutes"; then
+                            echo ""
+                            ui_warning "Upgrade cancelled"
+                            echo ""
+                            read -p "Press Enter to continue..." -r
+                            continue
+                        fi
+
+                        # Apply upgrade using corelight-client
                         echo ""
-                        ui_info "To check upgrade status manually:"
-                        echo "    ssh ${SSH_USERNAME}@${ip}"
-                        echo "    ps aux | grep -E 'dpkg|apt|update'"
-                        echo "    sudo corelightctl version"
+                        ui_info "Starting upgrade via corelight-client updates apply..."
+                        upgrade_output=$(ssh_connect "$ip" \
+                            "corelight-client -b 192.0.2.1:30443 --ssl-no-verify-certificate -u admin -p $ADMIN_PASSWORD updates apply 2>&1" 2>/dev/null)
+
+                        if echo "$upgrade_output" | grep -q "success.*True"; then
+                            ui_success "Upgrade started successfully"
+                            upgrade_started=true
+                        else
+                            echo ""
+                            ui_error "Upgrade may have failed to start"
+                            echo "  Output: $upgrade_output"
+                            echo ""
+                            read -p "Press Enter to continue..." -r
+                            continue
+                        fi
+                        ;;
+                    2)
+                        # Upgrade to specific version using broala-update-repository
+                        echo ""
+                        ui_section "Upgrade to Specific Version"
+                        echo ""
+                        ui_info "This uses: sudo broala-update-repository -r $brolin_repo -R -U <version>"
+                        echo ""
+                        echo "  Examples:"
+                        echo "    - 28.4.1 (for testing channel)"
+                        echo "    - 29.0.0-t12 (for testing channel)"
+                        echo "    - 28.4.0 (for release channel)"
+                        echo ""
+
+                        echo -ne "$(_ui_color "$BOLD" "  Enter target version (e.g., 28.4.1): ")" 
+                        read -r target_version
+
+                        if [ -z "$target_version" ]; then
+                            echo ""
+                            ui_warning "No version specified - upgrade cancelled"
+                            echo ""
+                            read -p "Press Enter to continue..." -r
+                            continue
+                        fi
+
+                        echo ""
+                        ui_key_value "Target Version" "$target_version"
+                        ui_key_value "Repository" "$brolin_repo"
+                        ui_key_value "Command" "sudo broala-update-repository -r $brolin_repo -R -U $target_version"
+                        echo ""
+
+                        if ! ui_read_confirm "Proceed with upgrade to version $target_version?" "Sensor will restart and be unavailable for several minutes"; then
+                            echo ""
+                            ui_warning "Upgrade cancelled"
+                            echo ""
+                            read -p "Press Enter to continue..." -r
+                            continue
+                        fi
+
+                        # Apply upgrade using broala-update-repository
+                        echo ""
+                        ui_info "Starting upgrade to $target_version..."
+                        ui_info "Running: sudo broala-update-repository -r $brolin_repo -R -U $target_version"
+                        echo ""
+                        
+                        upgrade_output=$(ssh_connect "$ip" \
+                            "sudo broala-update-repository -r $brolin_repo -R -U $target_version 2>&1" 2>/dev/null)
+                        upgrade_exit=$?
+
+                        if [ $upgrade_exit -eq 0 ]; then
+                            ui_success "Upgrade command completed"
+                            echo "  Output:"
+                            echo "$upgrade_output" | tail -10 | sed 's/^/    /'
+                            upgrade_started=true
+                        else
+                            ui_error "Upgrade command failed" "Exit code: $upgrade_exit"
+                            echo "  Output:"
+                            echo "$upgrade_output" | tail -15 | sed 's/^/    /'
+                            echo ""
+                            read -p "Press Enter to continue..." -r
+                            continue
+                        fi
+                        ;;
+                    3|*)
+                        # Back to operations menu
+                        continue
+                        ;;
+                esac
+
+                # Only monitor if upgrade was actually started
+                if [ "$upgrade_started" != true ]; then
+                    continue
+                fi
+
+                # Monitor upgrade progress (common for both methods)
+                echo ""
+                ui_info "Sensor is upgrading... This may take 5-10 minutes"
+                ui_info "Monitoring upgrade progress..."
+                echo ""
+
+                # Monitor the actual upgrade progress
+                max_wait=600  # 10 minutes max
+                elapsed=0
+                interval=10
+                upgrade_complete=false
+                start_time=$(date +%s)
+
+                while [ $elapsed -lt $max_wait ]; do
+                    # Sleep first, then check status
+                    sleep $interval
+                    elapsed=$(( $(date +%s) - start_time ))
+                    
+                    # Show progress bar with current status
+                    ui_progress_bar "$elapsed" "$max_wait" "Upgrading..."
+                    
+                    # Check if SSH is available
+                    if ! ssh_connect "$ip" "echo online" 2>/dev/null | grep -q "online"; then
+                        # Sensor is rebooting - continue waiting
+                        continue
                     fi
-                else
+                    
+                    # SSH is available - check actual upgrade status
+                    # Check for running upgrade processes (dpkg, apt, update scripts, broala-update)
+                    upgrade_running=$(ssh_connect "$ip" \
+                        "pgrep -f 'dpkg|apt|update-system|corelight.*update|broala-update' 2>/dev/null | head -1" 2>/dev/null)
+                    
+                    # Check for any active installation/update processes
+                    active_updates=$(ssh_connect "$ip" \
+                        "ps aux 2>/dev/null | grep -E 'dpkg|apt-get|update|upgrade|broala' | grep -v grep | wc -l" 2>/dev/null)
+                    active_updates="${active_updates:-0}"
+                    
+                    if [ -n "$upgrade_running" ] || [ "$active_updates" -gt 0 ]; then
+                        # Upgrade still in progress - continue waiting
+                        continue
+                    fi
+                    
+                    # No upgrade processes found - wait a bit more then verify
+                    sleep 5
+                    elapsed=$(( $(date +%s) - start_time ))
+                    
+                    # Double-check no upgrade processes
+                    final_check=$(ssh_connect "$ip" \
+                        "pgrep -f 'dpkg|apt|update-system|broala-update' 2>/dev/null | wc -l" 2>/dev/null)
+                    final_check="${final_check:-0}"
+                    
+                    if [ "$final_check" -eq 0 ]; then
+                        # Get the new version
+                        new_version=$(ssh_connect "$ip" \
+                            "sudo corelightctl version 2>/dev/null | jq -r '.version // \"unknown\"'" 2>/dev/null)
+                        
+                        if [ -n "$new_version" ] && [ "$new_version" != "unknown" ]; then
+                            upgrade_complete=true
+                            # Show 100% progress bar before success message
+                            ui_progress_bar "$elapsed" "$elapsed" "Complete"
+                            echo ""
+                            if [ "$new_version" != "$current_version" ]; then
+                                ui_success "Upgraded from $current_version to $new_version" "Completed in $(ui_elapsed_time $elapsed)"
+                            else
+                                ui_success "Upgrade complete: $new_version" "Completed in $(ui_elapsed_time $elapsed)"
+                                ui_info "Note: Version number may be unchanged if already at target"
+                            fi
+                            break
+                        fi
+                    fi
+                done
+
+                # Final verification if loop completed without success
+                if [ "$upgrade_complete" = false ]; then
                     echo ""
-                    ui_error "Upgrade failed to start"
-                    # Show actual error output with better formatting
-                    if [ -n "$upgrade_output" ]; then
-                        echo "  Error details:"
-                        echo "$upgrade_output" | head -15 | sed 's/^/    /'
-                    fi
-                    # Check for specific error patterns
-                    if echo "$upgrade_output" | grep -qi "already.*running\|in progress"; then
-                        echo ""
-                        ui_warning "An upgrade may already be in progress"
-                    elif echo "$upgrade_output" | grep -qi "permission\|denied\|authentication"; then
-                        echo ""
-                        ui_warning "Authentication error - check admin password"
-                    elif echo "$upgrade_output" | grep -qi "network\|connection\|unreachable"; then
-                        echo ""
-                        ui_warning "Network connectivity issue - check sensor connectivity"
-                    fi
+                    ui_warning "Verification timeout after $(ui_elapsed_time $max_wait)"
+                    ui_info "The upgrade may still be in progress."
                     echo ""
-                    ui_info "To check manually: ssh ${SSH_USERNAME}@${ip} 'corelight-client updates list'"
+                    ui_info "To check upgrade status manually:"
+                    echo "    ssh ${SSH_USERNAME}@${ip}"
+                    echo "    ps aux | grep -E 'dpkg|apt|update|broala'"
+                    echo "    sudo corelightctl version"
+                    echo "    corelight-client information get"
                 fi
 
                 echo ""
