@@ -662,17 +662,17 @@ is_metrics_cache_fresh() {
     return 1  # Stale
 }
 
-# Get cached metrics if fresh, otherwise return empty
+# Get cached metrics regardless of freshness (Phase 3 handles refresh logic)
 # Usage: metrics=$(get_cached_metrics "sensor-name")
 get_cached_metrics() {
     local sensor_name="$1"
     local encoded=$(_encode_sensor_name "$sensor_name")
     
-    if is_metrics_cache_fresh "$sensor_name"; then
-        if [ -f "$CACHE_DIR/${encoded}.metrics" ]; then
-            cat "$CACHE_DIR/${encoded}.metrics"
-            return 0
-        fi
+    # Return cached metrics if file exists - don't check freshness here
+    # Phase 3 already decided whether to refresh, Phase 4 just displays
+    if [ -f "$CACHE_DIR/${encoded}.metrics" ]; then
+        cat "$CACHE_DIR/${encoded}.metrics"
+        return 0
     fi
     
     echo ""
