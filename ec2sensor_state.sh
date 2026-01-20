@@ -26,7 +26,9 @@ LAST_REFRESH_TIME=0
 REFRESH_COUNT=0
 
 # Cache directory for sensor data (bash 3.x compatible)
+# Must be exported so background subshells (collect_sensor_metrics_async &) can access it
 CACHE_DIR="${TMPDIR:-/tmp}/ec2sensor_cache_$$"
+export CACHE_DIR
 mkdir -p "$CACHE_DIR" 2>/dev/null
 
 # Operation history
