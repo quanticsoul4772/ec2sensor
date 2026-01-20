@@ -193,9 +193,10 @@ while true; do
     SENSORS=()
     if [ -f "$SENSORS_FILE" ]; then
         # Read and sort sensors by their numeric ID (ascending)
-        # This ensures newer sensors (higher IDs) appear at the bottom
+        # This ensures oldest sensors (lower IDs) appear at the top
+        # and newest sensors (higher IDs) appear at the bottom
         while IFS= read -r line; do
-            SENSORS+=("$line")
+            [ -n "$line" ] && SENSORS+=("$line")
         done < <(sort -t'-' -k6 -n "$SENSORS_FILE" 2>/dev/null || cat "$SENSORS_FILE")
     fi
 
@@ -248,8 +249,22 @@ while true; do
             sensor="${SENSORS[$i]}"
             response=$(get_fetched_response "$sensor")
 
-            # Check if response is valid JSON
+            # Check if response is a valid JSON object with sensor data
+            # API returns error strings like "Error: Ec2 Instances does not exist: []" for deleted sensors
+            is_valid_sensor=false
             if echo "$response" | jq empty 2>/dev/null; then
+                # Check it's an object (not a string/array) and has sensor_status
+                if echo "$response" | jq -e 'type == "object" and has("sensor_status")' >/dev/null 2>&1; then
+                    is_valid_sensor=true
+                fi
+            fi
+            
+            # Also check for error message in response (API returns strings starting with "Error:")
+            if echo "$response" | grep -q '^"Error:' 2>/dev/null; then
+                is_valid_sensor=false
+            fi
+
+            if [ "$is_valid_sensor" = true ]; then
                 status=$(echo "$response" | jq -r '.sensor_status // "unknown"' 2>/dev/null)
                 ip=$(echo "$response" | jq -r '.sensor_ip // "no-ip"' 2>/dev/null)
 
