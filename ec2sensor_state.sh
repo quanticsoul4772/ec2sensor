@@ -42,8 +42,9 @@ TOTAL_API_TIME_MS=0
 # Cache TTL (seconds) - increased from 30s for better performance
 CACHE_TTL=60
 
-# Offline mode persistent cache
+# Offline mode persistent cache (exported for background subshells)
 OFFLINE_CACHE_DIR="${HOME}/.ec2sensor/cache"
+export OFFLINE_CACHE_DIR
 mkdir -p "$OFFLINE_CACHE_DIR" 2>/dev/null
 
 # Retry settings for API calls
@@ -613,13 +614,24 @@ fetch_sensor_async() {
     local response
     response=$(api_call_with_retry "${base_url}/${sensor_name}" "$api_key")
     
+    # Check if API returned an error message (plain text or JSON string)
+    # API returns "Error: Ec2 Instances does not exist: []" for deleted sensors
+    if echo "$response" | grep -qi "Error:.*does not exist\|Ec2 Instances does not exist"; then
+        # Sensor has been deleted - save error marker and clear offline cache
+        echo '{"_deleted": true, "_error": "Sensor does not exist"}' > "$CACHE_DIR/${encoded}.api_response" 2>/dev/null
+        # Remove from offline cache so we don't show stale data
+        rm -f "$OFFLINE_CACHE_DIR/${encoded}.json" 2>/dev/null
+        rm -f "$OFFLINE_CACHE_DIR/${encoded}.time" 2>/dev/null
+        return
+    fi
+    
     # Check if response is valid JSON
     if echo "$response" | jq empty 2>/dev/null; then
         # Save to both session cache and persistent offline cache
         echo "$response" > "$CACHE_DIR/${encoded}.api_response" 2>/dev/null
         save_offline_cache "$sensor_name" "$response"
     else
-        # Try loading from offline cache
+        # API returned non-JSON response (unexpected) - try offline cache
         response=$(load_offline_cache "$sensor_name")
         echo "$response" > "$CACHE_DIR/${encoded}.api_response" 2>/dev/null
     fi

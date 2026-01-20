@@ -251,16 +251,20 @@ while true; do
 
             # Check if response is a valid JSON object with sensor data
             # API returns error strings like "Error: Ec2 Instances does not exist: []" for deleted sensors
+            # fetch_sensor_async now marks deleted sensors with {"_deleted": true}
             is_valid_sensor=false
             if echo "$response" | jq empty 2>/dev/null; then
+                # Check if marked as deleted by fetch_sensor_async
+                if echo "$response" | jq -e '._deleted == true' >/dev/null 2>&1; then
+                    is_valid_sensor=false
                 # Check it's an object (not a string/array) and has sensor_status
-                if echo "$response" | jq -e 'type == "object" and has("sensor_status")' >/dev/null 2>&1; then
+                elif echo "$response" | jq -e 'type == "object" and has("sensor_status")' >/dev/null 2>&1; then
                     is_valid_sensor=true
                 fi
             fi
             
-            # Also check for error message in response (API returns strings starting with "Error:")
-            if echo "$response" | grep -q '^"Error:' 2>/dev/null; then
+            # Also check for error message in response (backup check for edge cases)
+            if echo "$response" | grep -qi 'Error:.*does not exist' 2>/dev/null; then
                 is_valid_sensor=false
             fi
 
