@@ -938,6 +938,8 @@ while true; do
 
                 # List available versions
                 ui_info "Checking available versions..."
+                # Fix corelight-client cache permissions (may be owned by root from previous sudo runs)
+                ssh_connect "$ip" "mkdir -p ~/.corelight-client && sudo chown -R \$(whoami) ~/.corelight-client 2>/dev/null" 2>/dev/null
                 updates_output=$(ssh_connect "$ip" \
                     "corelight-client -b 192.0.2.1:30443 --ssl-no-verify-certificate -u admin -p $ADMIN_PASSWORD updates list 2>&1" 2>/dev/null)
                 updates_exit_code=$?
