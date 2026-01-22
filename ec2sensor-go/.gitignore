@@ -1,0 +1,27 @@
+# Binaries
+ec2sensor
+ec2sensor-*
+*.exe
+build/
+
+# Go build cache
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Dependency directories
+vendor/

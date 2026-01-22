@@ -2,9 +2,13 @@
 .env
 .env.*
 !.env.template
+.mcp.json
 
 # Sensor tracking (contains instance-specific data)
 .sensors
+
+# SDET working directory (not tracked)
+sdet/
 
 # Log files
 logs/
