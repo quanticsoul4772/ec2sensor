@@ -1967,14 +1967,23 @@ func (m Model) loadSensors() tea.Cmd {
 
 		// Fetch each sensor from API
 		var sensors []*models.Sensor
+		var deletedSensors []string
 		for _, name := range sensorNames {
 			sensor, err := m.apiClient.FetchSensor(name)
 			if err != nil {
 				continue // Skip sensors that fail to load
 			}
-			if !sensor.Deleted {
+			if sensor.Deleted {
+				// Track deleted sensors for cleanup
+				deletedSensors = append(deletedSensors, name)
+			} else {
 				sensors = append(sensors, sensor)
 			}
+		}
+
+		// Auto-cleanup: remove deleted sensors from .sensors file
+		for _, name := range deletedSensors {
+			removeSensorFromFile(m.config.SensorsFile, name)
 		}
 
 		return sensorsLoadedMsg{sensors: sensors}

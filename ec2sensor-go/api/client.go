@@ -66,13 +66,13 @@ func (c *Client) FetchSensor(sensorName string) (*models.Sensor, error) {
 		// Check for error response (plain text)
 		bodyStr := string(body)
 		if strings.Contains(bodyStr, "Error:") && strings.Contains(bodyStr, "does not exist") {
-			// Return sensor as pending (not deleted) - it might be newly created and not yet in API
-			// The loadSensors function will handle filtering based on context
+			// Sensor doesn't exist in API - mark as deleted so it gets cleaned up
 			return &models.Sensor{
-				Name:   sensorName,
-				IP:     "",
-				Status: models.StatusPending,
-				Error:  "Sensor not yet available",
+				Name:    sensorName,
+				IP:      "",
+				Status:  models.StatusDeleted,
+				Deleted: true,
+				Error:   "Sensor does not exist",
 			}, nil
 		}
 
