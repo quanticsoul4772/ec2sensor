@@ -82,11 +82,13 @@ type Model struct {
 	apiOnline bool
 
 	// Deployment state
-	deploying          bool
+	deploying           bool
 	deployingSensorName string
-	deployStartTime    time.Time
-	deployStatus       string
-	deployLogs         []string
+	deployStartTime     time.Time
+	deployStatus        string
+	deployLogs          []string
+	deployPhase         int    // 1=SSH port, 2=SSH service, 3=Seeding
+	deployPhaseStart    time.Time
 
 	// Upgrade state
 	upgrading           bool
@@ -146,10 +148,13 @@ type (
 	}
 
 	deployStatusMsg struct {
-		status    string
-		ip        string
-		isRunning bool
-		err       error
+		status      string
+		ip          string
+		isRunning   bool
+		phase       int    // Current phase being checked
+		phaseStatus string // Status of current phase check
+		seededValue string // Value of system.seeded
+		err         error
 	}
 
 	deployCompleteMsg struct {
@@ -315,29 +320,82 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case deployStatusMsg:
+		elapsed := time.Since(m.deployStartTime).Round(time.Second)
+		phaseElapsed := time.Since(m.deployPhaseStart).Round(time.Second)
+
 		if msg.err != nil {
-			m.deployLogs = append(m.deployLogs, fmt.Sprintf("⚠ Error checking status: %v", msg.err))
-			// Continue monitoring even on error
-			cmds = append(cmds, tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
+			// Log error but continue monitoring
+			m.deployLogs = append(m.deployLogs, fmt.Sprintf("[%s] ⚠ %v", formatElapsed(elapsed), msg.err))
+			cmds = append(cmds, tea.Tick(15*time.Second, func(t time.Time) tea.Msg {
 				return tickMsg(t)
 			}))
 		} else {
-			elapsed := time.Since(m.deployStartTime).Round(time.Second)
-			m.deployStatus = msg.status
-			m.deployLogs = append(m.deployLogs, fmt.Sprintf("[%s] Status: %s", formatElapsed(elapsed), msg.status))
+			// Update phase tracking
+			if msg.phase > m.deployPhase {
+				m.deployPhase = msg.phase
+				m.deployPhaseStart = time.Now()
+			}
 
-			if msg.isRunning && msg.ip != "" && msg.ip != "null" && msg.ip != "unknown" {
-				// Sensor is ready!
-				m.deployLogs = append(m.deployLogs, "")
-				m.deployLogs = append(m.deployLogs, fmt.Sprintf("✓ Sensor is RUNNING at %s", msg.ip))
-				cmds = append(cmds, func() tea.Msg {
-					return deployCompleteMsg{sensorName: m.deployingSensorName, ip: msg.ip}
-				})
-			} else {
-				// Keep polling (every 30 seconds) - no timeout
+			// Build status based on phase
+			switch msg.phase {
+			case 0:
+				// Still waiting for API to report running
+				m.deployStatus = msg.status
+				m.deployLogs = append(m.deployLogs, fmt.Sprintf("[%s] API Status: %s", formatElapsed(elapsed), msg.status))
 				cmds = append(cmds, tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
 					return tickMsg(t)
 				}))
+			case 1:
+				// Phase 1: SSH port
+				m.deployStatus = "Phase 1/3: SSH port"
+				if msg.phaseStatus == "waiting" {
+					m.deployLogs = append(m.deployLogs, fmt.Sprintf("[%s] [Phase 1/3] Waiting for SSH port...", formatElapsed(elapsed)))
+					cmds = append(cmds, tea.Tick(10*time.Second, func(t time.Time) tea.Msg {
+						return tickMsg(t)
+					}))
+				} else {
+					m.deployLogs = append(m.deployLogs, fmt.Sprintf("[%s] [Phase 1/3] ✓ SSH port accessible (%s)", formatElapsed(elapsed), formatElapsed(phaseElapsed)))
+					// Continue to phase 2 immediately
+					cmds = append(cmds, m.checkDeployStatus())
+				}
+			case 2:
+				// Phase 2: SSH service
+				m.deployStatus = "Phase 2/3: SSH service"
+				if msg.phaseStatus == "waiting" {
+					m.deployLogs = append(m.deployLogs, fmt.Sprintf("[%s] [Phase 2/3] Waiting for SSH service...", formatElapsed(elapsed)))
+					cmds = append(cmds, tea.Tick(10*time.Second, func(t time.Time) tea.Msg {
+						return tickMsg(t)
+					}))
+				} else {
+					m.deployLogs = append(m.deployLogs, fmt.Sprintf("[%s] [Phase 2/3] ✓ SSH service ready (%s)", formatElapsed(elapsed), formatElapsed(phaseElapsed)))
+					m.deployLogs = append(m.deployLogs, "")
+					m.deployLogs = append(m.deployLogs, "[Phase 3/3] Waiting for sensor seeding (system.seeded=1)...")
+					m.deployLogs = append(m.deployLogs, "This can take 60+ minutes for initial seeding...")
+					// Continue to phase 3 immediately
+					cmds = append(cmds, m.checkDeployStatus())
+				}
+			case 3:
+				// Phase 3: Seeding
+				m.deployStatus = "Phase 3/3: Seeding"
+				if msg.phaseStatus == "waiting" {
+					seededInfo := ""
+					if msg.seededValue != "" {
+						seededInfo = fmt.Sprintf(" (system.seeded=%s)", msg.seededValue)
+					}
+					m.deployLogs = append(m.deployLogs, fmt.Sprintf("[%s] [Phase 3/3] Seeding in progress%s", formatElapsed(elapsed), seededInfo))
+					cmds = append(cmds, tea.Tick(15*time.Second, func(t time.Time) tea.Msg {
+						return tickMsg(t)
+					}))
+				} else {
+					// Seeding complete!
+					m.deployLogs = append(m.deployLogs, fmt.Sprintf("[%s] [Phase 3/3] ✓ Seeding complete! (%s)", formatElapsed(elapsed), formatElapsed(phaseElapsed)))
+					m.deployLogs = append(m.deployLogs, "")
+					m.deployLogs = append(m.deployLogs, fmt.Sprintf("✓ Sensor is READY at %s", msg.ip))
+					m.deployLogs = append(m.deployLogs, fmt.Sprintf("Total deployment time: %s", formatElapsed(elapsed)))
+					cmds = append(cmds, func() tea.Msg {
+						return deployCompleteMsg{sensorName: m.deployingSensorName, ip: msg.ip}
+					})
+				}
 			}
 		}
 
@@ -802,7 +860,9 @@ func (m Model) handleConfirmDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = ViewDeploying
 		m.deploying = true
 		m.deployStartTime = time.Now()
+		m.deployPhaseStart = time.Now()
 		m.deployStatus = "creating"
+		m.deployPhase = 0
 		m.deployLogs = []string{"Creating new sensor..."}
 		return m, tea.Batch(
 			m.createSensor(),
@@ -1419,13 +1479,55 @@ func (m Model) renderDeploying() string {
 	}
 	b.WriteString("\n")
 
-	// Status indicator
-	b.WriteString(ui.RenderSection(m.styles, "Status"))
+	// Phase progress indicator
+	b.WriteString(ui.RenderSection(m.styles, "Deployment Progress"))
+	b.WriteString("\n")
+	
+	// Show phase progress
+	phases := []struct {
+		num  int
+		name string
+	}{
+		{1, "SSH Port"},
+		{2, "SSH Service"},
+		{3, "Seeding (60+ min)"},
+	}
+	
+	for _, p := range phases {
+		var icon, style string
+		if m.deployPhase > p.num {
+			icon = "✓"
+			style = "success"
+		} else if m.deployPhase == p.num {
+			icon = m.spinner.View()
+			style = "info"
+		} else {
+			icon = "○"
+			style = "help"
+		}
+		
+		line := fmt.Sprintf("  %s Phase %d: %s", icon, p.num, p.name)
+		switch style {
+		case "success":
+			b.WriteString(m.styles.Success.Render(line))
+		case "info":
+			b.WriteString(m.styles.Info.Render(line))
+		default:
+			b.WriteString(m.styles.Help.Render(line))
+		}
+		b.WriteString("\n")
+	}
 	b.WriteString("\n")
 
-	// Show spinner if still deploying (no timeout - monitoring indefinitely)
+	// Status indicator
 	if m.deploying {
-		b.WriteString(fmt.Sprintf("  %s Deployment in progress...\n", m.spinner.View()))
+		if m.deployPhase == 0 {
+			b.WriteString(fmt.Sprintf("  %s Waiting for sensor to start...\n", m.spinner.View()))
+		} else if m.deployPhase == 3 {
+			b.WriteString(fmt.Sprintf("  %s Seeding in progress (this takes 60+ minutes)...\n", m.spinner.View()))
+		} else {
+			b.WriteString(fmt.Sprintf("  %s Deployment in progress...\n", m.spinner.View()))
+		}
 	} else {
 		b.WriteString(m.styles.Success.Render("  ✓ Deployment complete"))
 		b.WriteString("\n")
@@ -1442,6 +1544,8 @@ func (m Model) renderDeploying() string {
 			b.WriteString(m.styles.Error.Render("  " + log))
 		} else if strings.HasPrefix(log, "[") {
 			b.WriteString(m.styles.Info.Render("  " + log))
+		} else if strings.HasPrefix(log, "This can take") {
+			b.WriteString(m.styles.Warning.Render("  " + log))
 		} else {
 			b.WriteString(m.styles.Help.Render("  " + log))
 		}
@@ -2032,16 +2136,85 @@ func (m Model) checkDeployStatus() tea.Cmd {
 			return deployStatusMsg{err: fmt.Errorf("no sensor name")}
 		}
 
+		// First check API status
 		sensor, err := m.apiClient.FetchSensor(m.deployingSensorName)
 		if err != nil {
 			return deployStatusMsg{err: err}
 		}
 
 		isRunning := sensor.Status == models.StatusRunning
+		hasValidIP := sensor.IP != "" && sensor.IP != "null" && sensor.IP != "unknown"
+
+		// If not running yet with valid IP, stay in phase 0
+		if !isRunning || !hasValidIP {
+			return deployStatusMsg{
+				status:    string(sensor.Status),
+				ip:        sensor.IP,
+				isRunning: isRunning,
+				phase:     0,
+			}
+		}
+
+		// API says running with valid IP - now check SSH phases
+		// Phase 1: Check SSH port
+		if m.deployPhase < 1 {
+			if m.sshClient.CheckSSHPort(sensor.IP) {
+				return deployStatusMsg{
+					status:      "running",
+					ip:          sensor.IP,
+					isRunning:   true,
+					phase:       1,
+					phaseStatus: "complete",
+				}
+			}
+			return deployStatusMsg{
+				status:      "running",
+				ip:          sensor.IP,
+				isRunning:   true,
+				phase:       1,
+				phaseStatus: "waiting",
+			}
+		}
+
+		// Phase 2: Check SSH service
+		if m.deployPhase < 2 {
+			if m.sshClient.TestConnection(sensor.IP) {
+				return deployStatusMsg{
+					status:      "running",
+					ip:          sensor.IP,
+					isRunning:   true,
+					phase:       2,
+					phaseStatus: "complete",
+				}
+			}
+			return deployStatusMsg{
+				status:      "running",
+				ip:          sensor.IP,
+				isRunning:   true,
+				phase:       2,
+				phaseStatus: "waiting",
+			}
+		}
+
+		// Phase 3: Check seeding status
+		seeded, seededValue, _ := m.sshClient.CheckSeeded(sensor.IP)
+		if seeded {
+			return deployStatusMsg{
+				status:      "running",
+				ip:          sensor.IP,
+				isRunning:   true,
+				phase:       3,
+				phaseStatus: "complete",
+				seededValue: seededValue,
+			}
+		}
 		return deployStatusMsg{
-			status:    string(sensor.Status),
-			ip:        sensor.IP,
-			isRunning: isRunning,
+			status:      "running",
+			ip:          sensor.IP,
+			isRunning:   true,
+			phase:       3,
+			phaseStatus: "waiting",
+			seededValue: seededValue,
 		}
 	}
 }

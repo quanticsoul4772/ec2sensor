@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -87,6 +88,32 @@ type ServiceStatus struct {
 func (c *Client) TestConnection(ip string) bool {
 	_, err := c.runCommand(ip, "echo ok")
 	return err == nil
+}
+
+// CheckSSHPort checks if the SSH port (22) is accessible
+func (c *Client) CheckSSHPort(ip string) bool {
+	// Use Go's net.DialTimeout for portability (doesn't require nc)
+	conn, err := net.DialTimeout("tcp", ip+":22", 5*time.Second)
+	if err == nil {
+		conn.Close()
+		return true
+	}
+	return false
+}
+
+// CheckSeeded checks if the sensor has completed seeding (system.seeded=1)
+// Returns: seeded (bool), seededValue (string for display), error
+func (c *Client) CheckSeeded(ip string) (bool, string, error) {
+	output, err := c.runCommand(ip, "sudo /opt/broala/bin/broala-config get system.seeded 2>/dev/null")
+	if err != nil {
+		return false, "error", err
+	}
+
+	seededValue := strings.TrimSpace(output)
+	if seededValue == "1" {
+		return true, seededValue, nil
+	}
+	return false, seededValue, nil
 }
 
 // GetAdminPassword retrieves the admin password from the sensor's corelightctl.yaml
