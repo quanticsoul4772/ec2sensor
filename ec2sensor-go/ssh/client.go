@@ -104,15 +104,49 @@ func (c *Client) CheckSSHPort(ip string) bool {
 // CheckSeeded checks if the sensor has completed seeding (system.seeded=1)
 // Returns: seeded (bool), seededValue (string for display), error
 func (c *Client) CheckSeeded(ip string) (bool, string, error) {
-	output, err := c.runCommand(ip, "sudo /opt/broala/bin/broala-config get system.seeded 2>/dev/null")
+	output, err := c.runCommand(ip, "sudo /opt/broala/bin/broala-config get system.seeded 2>&1")
 	if err != nil {
-		return false, "error", err
+		// Return a more descriptive error message with debug info
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "exit status") {
+			// Include the output which may contain error details
+			if output != "" {
+				return false, "command failed", fmt.Errorf("broala-config failed: %s (exit: %v)", strings.TrimSpace(output), err)
+			}
+			return false, "command failed", fmt.Errorf("broala-config command failed: %v", err)
+		}
+		if strings.Contains(errMsg, "connection refused") || strings.Contains(errMsg, "Connection refused") {
+			return false, "SSH refused", fmt.Errorf("SSH connection refused to %s:22 - sensor may still be starting", ip)
+		}
+		if strings.Contains(errMsg, "timed out") || strings.Contains(errMsg, "timeout") {
+			return false, "SSH timeout", fmt.Errorf("SSH connection timed out to %s - network issue or sensor not ready", ip)
+		}
+		if strings.Contains(errMsg, "no route to host") || strings.Contains(errMsg, "No route to host") {
+			return false, "no route", fmt.Errorf("no route to host %s - check network connectivity", ip)
+		}
+		if strings.Contains(errMsg, "permission denied") || strings.Contains(errMsg, "Permission denied") {
+			return false, "auth failed", fmt.Errorf("SSH authentication failed to %s - check SSH keys/credentials", ip)
+		}
+		return false, "SSH error", fmt.Errorf("SSH error connecting to %s: %v", ip, err)
 	}
 
 	seededValue := strings.TrimSpace(output)
+	
+	// Handle empty or unexpected output
+	if seededValue == "" {
+		return false, "empty response", fmt.Errorf("broala-config returned empty response - command may not exist yet")
+	}
+	
+	// Check for error messages in the output (broala-config might return error text)
+	if strings.Contains(seededValue, "error") || strings.Contains(seededValue, "Error") || strings.Contains(seededValue, "not found") {
+		return false, "config error", fmt.Errorf("broala-config error: %s", seededValue)
+	}
+	
 	if seededValue == "1" {
 		return true, seededValue, nil
 	}
+	
+	// Return the actual value (could be "0" or something else)
 	return false, seededValue, nil
 }
 
@@ -381,13 +415,85 @@ func (c *Client) CheckUpgradeStatus(ip, adminPassword string) (*UpgradeStatus, e
 	return status, nil
 }
 
+// EnableFeaturesResult contains the result of enabling features
+type EnableFeaturesResult struct {
+	Success     bool
+	Output      string
+	Error       error
+	ConfigSet   bool   // Config commands ran successfully
+	ApplyConfig bool   // broala-apply-config succeeded
+	Message     string // Human readable status message
+}
+
 // EnableFeatures runs the enable_sensor_features commands on the sensor
-func (c *Client) EnableFeatures(ip string) (string, error) {
-	// This is a simplified version - the full script does more
-	// We run the key commands directly
+// Returns detailed result with actual status from the commands
+func (c *Client) EnableFeatures(ip string) (*EnableFeaturesResult, error) {
+	result := &EnableFeaturesResult{}
+
+	// First check if sensor is seeded (required for features to work)
+	seeded, seededValue, seedErr := c.CheckSeeded(ip)
+	if !seeded {
+		result.Success = false
+		if seedErr != nil {
+			// There was an error checking seeding status - provide detailed debug info
+			result.Message = fmt.Sprintf("Cannot check sensor status: %s", seededValue)
+			result.Error = seedErr
+			// Build detailed debug output
+			var debugLines []string
+			debugLines = append(debugLines, fmt.Sprintf("Target: %s", ip))
+			debugLines = append(debugLines, fmt.Sprintf("Error type: %s", seededValue))
+			debugLines = append(debugLines, fmt.Sprintf("Details: %v", seedErr))
+			debugLines = append(debugLines, "")
+			debugLines = append(debugLines, "Troubleshooting:")
+			switch seededValue {
+			case "SSH refused":
+				debugLines = append(debugLines, "  - Sensor may still be starting up")
+				debugLines = append(debugLines, "  - Wait a few minutes and try again")
+			case "SSH timeout":
+				debugLines = append(debugLines, "  - Check network connectivity to sensor")
+				debugLines = append(debugLines, "  - Verify sensor IP is correct")
+			case "auth failed":
+				debugLines = append(debugLines, "  - Check SSH keys are configured")
+				debugLines = append(debugLines, "  - Verify SSH username is correct")
+			case "command failed", "config error", "empty response":
+				debugLines = append(debugLines, "  - broala-config may not be installed yet")
+				debugLines = append(debugLines, "  - Sensor may still be initializing")
+				debugLines = append(debugLines, "  - Wait for sensor to finish starting up")
+			case "no route":
+				debugLines = append(debugLines, "  - Check VPN connection")
+				debugLines = append(debugLines, "  - Verify network routing")
+			default:
+				debugLines = append(debugLines, "  - Check sensor status in AWS console")
+				debugLines = append(debugLines, "  - Try refreshing the sensor list")
+			}
+			result.Output = strings.Join(debugLines, "\n")
+		} else {
+			// No error, just not seeded yet
+			result.Message = fmt.Sprintf("Sensor not ready - system.seeded=%s (must be 1)", seededValue)
+			result.Error = fmt.Errorf("sensor not seeded yet (system.seeded=%s)", seededValue)
+			// Provide helpful context about seeding
+			var debugLines []string
+			debugLines = append(debugLines, fmt.Sprintf("Target: %s", ip))
+			debugLines = append(debugLines, fmt.Sprintf("system.seeded = %s (expecting 1)", seededValue))
+			debugLines = append(debugLines, "")
+			if seededValue == "0" {
+				debugLines = append(debugLines, "Sensor is still seeding. This process:")
+				debugLines = append(debugLines, "  - Can take 60+ minutes for new sensors")
+				debugLines = append(debugLines, "  - Downloads and configures packages")
+				debugLines = append(debugLines, "  - Must complete before enabling features")
+			} else {
+				debugLines = append(debugLines, fmt.Sprintf("Unexpected seeded value: %s", seededValue))
+				debugLines = append(debugLines, "Expected: 0 (seeding) or 1 (ready)")
+			}
+			result.Output = strings.Join(debugLines, "\n")
+		}
+		return result, nil
+	}
+
+	// Run the config set commands
 	commands := `set +u
-set -e
-echo "Enabling sensor features and licenses..."
+echo "=== Setting feature configuration ==="
+FAILED=0
 for cmd in \
     "sudo /opt/broala/bin/broala-config set http.access.enable=1" \
     "sudo /opt/broala/bin/broala-config set license.yara.enable=1" \
@@ -397,18 +503,27 @@ for cmd in \
     "sudo /opt/broala/bin/broala-config set suricata.enable=1" \
     "sudo /opt/broala/bin/broala-config set smartpcap.enable=1"; do
     echo "Running: $cmd"
-    if ! eval "$cmd"; then
-        echo "Failed: $cmd" >&2
-        exit 1
+    if eval "$cmd" 2>&1; then
+        echo "OK"
+    else
+        echo "FAILED"
+        FAILED=1
     fi
 done
-echo "Applying configuration..."
+
+if [ "$FAILED" = "1" ]; then
+    echo "=== CONFIG_SET_FAILED ==="
+else
+    echo "=== CONFIG_SET_OK ==="
+fi
+
+echo "=== Applying configuration ==="
 
 # Get admin password for corelight-client authentication
 ADMIN_PASSWORD=$(sudo grep "password:" /etc/corelight/corelightctl.yaml | awk "{print \$2}")
 if [ -z "$ADMIN_PASSWORD" ]; then
-    echo "Warning: Could not read admin password, skipping apply-config" >&2
-    echo "Features configured (restart sensor to apply)"
+    echo "Warning: Could not read admin password"
+    echo "=== APPLY_CONFIG_SKIPPED ==="
     exit 0
 fi
 
@@ -430,13 +545,42 @@ export PATH="$WRAPPER_DIR:$PATH"
 
 if sudo -E LC_ALL=en_US.utf8 LANG=en_US.utf8 PATH="$PATH" /opt/broala/bin/broala-apply-config -q 2>&1; then
     rm -rf "$WRAPPER_DIR" 2>/dev/null
-    echo "Features enabled successfully"
+    echo "=== APPLY_CONFIG_OK ==="
 else
     rm -rf "$WRAPPER_DIR" 2>/dev/null
-    echo "Warning: broala-apply-config had issues, features may still be enabled"
+    echo "=== APPLY_CONFIG_FAILED ==="
 fi`
 
-	return c.runCommand(ip, commands)
+	output, err := c.runCommand(ip, commands)
+	result.Output = output
+
+	if err != nil {
+		result.Success = false
+		result.Error = err
+		result.Message = "SSH command failed"
+		return result, nil
+	}
+
+	// Parse the output to determine what actually happened
+	result.ConfigSet = strings.Contains(output, "=== CONFIG_SET_OK ===")
+	result.ApplyConfig = strings.Contains(output, "=== APPLY_CONFIG_OK ===")
+	applySkipped := strings.Contains(output, "=== APPLY_CONFIG_SKIPPED ===")
+
+	if result.ConfigSet && result.ApplyConfig {
+		result.Success = true
+		result.Message = "Features enabled and configuration applied successfully"
+	} else if result.ConfigSet && applySkipped {
+		result.Success = false
+		result.Message = "Features configured but apply-config was skipped (restart sensor to apply)"
+	} else if result.ConfigSet && !result.ApplyConfig {
+		result.Success = false
+		result.Message = "Features configured but apply-config failed"
+	} else {
+		result.Success = false
+		result.Message = "Failed to set feature configuration"
+	}
+
+	return result, nil
 }
 
 // AddToFleetManager runs the fleet manager registration script

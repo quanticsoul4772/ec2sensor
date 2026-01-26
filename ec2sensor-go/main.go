@@ -190,7 +190,7 @@ type (
 
 	// Enable Features messages
 	enableFeaturesResultMsg struct {
-		output string
+		result *ssh.EnableFeaturesResult
 		err    error
 	}
 
@@ -489,30 +489,66 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case enableFeaturesResultMsg:
 		m.enablingFeatures = false
 		elapsed := time.Since(m.enableFeaturesStart).Round(time.Second)
+		
 		if msg.err != nil {
 			m.enableFeaturesLogs = append(m.enableFeaturesLogs, "")
-			m.enableFeaturesLogs = append(m.enableFeaturesLogs, fmt.Sprintf("✗ Failed: %v", msg.err))
-			if msg.output != "" {
-				// Add last few lines of output for debugging
-				lines := strings.Split(msg.output, "\n")
-				if len(lines) > 5 {
-					lines = lines[len(lines)-5:]
+			m.enableFeaturesLogs = append(m.enableFeaturesLogs, fmt.Sprintf("✗ Error: %v", msg.err))
+		} else if msg.result != nil {
+			m.enableFeaturesLogs = append(m.enableFeaturesLogs, "")
+			
+			if msg.result.Success {
+				// Actual success - verified from command output
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, fmt.Sprintf("✓ %s", msg.result.Message))
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, fmt.Sprintf("  Completed in %s", formatElapsed(elapsed)))
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, "")
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, "Enabled features:")
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✓ HTTP access")
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✓ YARA engine")
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✓ Suricata IDS")
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✓ SmartPCAP")
+			} else {
+				// Not successful - show the actual status
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, fmt.Sprintf("✗ %s", msg.result.Message))
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, fmt.Sprintf("  Elapsed: %s", formatElapsed(elapsed)))
+				
+				// Show what did/didn't work
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, "")
+				m.enableFeaturesLogs = append(m.enableFeaturesLogs, "Status:")
+				if msg.result.ConfigSet {
+					m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✓ Configuration set")
+				} else {
+					m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✗ Configuration set failed")
 				}
-				for _, line := range lines {
-					if strings.TrimSpace(line) != "" {
+				if msg.result.ApplyConfig {
+					m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✓ Configuration applied")
+				} else {
+					m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✗ Configuration not applied")
+				}
+				
+				// Show relevant output lines for debugging
+				if msg.result.Output != "" {
+					m.enableFeaturesLogs = append(m.enableFeaturesLogs, "")
+					m.enableFeaturesLogs = append(m.enableFeaturesLogs, "Recent output:")
+					lines := strings.Split(msg.result.Output, "\n")
+					// Show last few meaningful lines (skip status markers)
+					var meaningfulLines []string
+					for _, line := range lines {
+						trimmed := strings.TrimSpace(line)
+						if trimmed != "" && !strings.HasPrefix(trimmed, "===") && !strings.HasPrefix(trimmed, "OK") {
+							meaningfulLines = append(meaningfulLines, trimmed)
+						}
+					}
+					if len(meaningfulLines) > 5 {
+						meaningfulLines = meaningfulLines[len(meaningfulLines)-5:]
+					}
+					for _, line := range meaningfulLines {
 						m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  "+line)
 					}
 				}
 			}
 		} else {
 			m.enableFeaturesLogs = append(m.enableFeaturesLogs, "")
-			m.enableFeaturesLogs = append(m.enableFeaturesLogs, fmt.Sprintf("✓ Features enabled successfully in %s", formatElapsed(elapsed)))
-			m.enableFeaturesLogs = append(m.enableFeaturesLogs, "")
-			m.enableFeaturesLogs = append(m.enableFeaturesLogs, "Enabled features:")
-			m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✓ HTTP access")
-			m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✓ YARA engine")
-			m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✓ Suricata IDS")
-			m.enableFeaturesLogs = append(m.enableFeaturesLogs, "  ✓ SmartPCAP")
+			m.enableFeaturesLogs = append(m.enableFeaturesLogs, "✗ Unknown error occurred")
 		}
 
 	case fleetResultMsg:
@@ -2197,7 +2233,7 @@ func (m Model) checkDeployStatus() tea.Cmd {
 		}
 
 		// Phase 3: Check seeding status
-		seeded, seededValue, _ := m.sshClient.CheckSeeded(sensor.IP)
+		seeded, seededValue, seedErr := m.sshClient.CheckSeeded(sensor.IP)
 		if seeded {
 			return deployStatusMsg{
 				status:      "running",
@@ -2205,8 +2241,13 @@ func (m Model) checkDeployStatus() tea.Cmd {
 				isRunning:   true,
 				phase:       3,
 				phaseStatus: "complete",
-				seededValue: seededValue,
+				seededValue: "1",
 			}
+		}
+		// Only show seededValue if it's a valid value (0 or 1), not error messages
+		displayValue := ""
+		if seedErr == nil && (seededValue == "0" || seededValue == "1") {
+			displayValue = seededValue
 		}
 		return deployStatusMsg{
 			status:      "running",
@@ -2214,7 +2255,7 @@ func (m Model) checkDeployStatus() tea.Cmd {
 			isRunning:   true,
 			phase:       3,
 			phaseStatus: "waiting",
-			seededValue: seededValue,
+			seededValue: displayValue,
 		}
 	}
 }
@@ -2308,8 +2349,8 @@ func (m Model) checkUpgradeProgress(ip string) tea.Cmd {
 // runEnableFeatures runs the enable_sensor_features.sh script via SSH
 func (m Model) runEnableFeatures(ip string) tea.Cmd {
 	return func() tea.Msg {
-		output, err := m.sshClient.EnableFeatures(ip)
-		return enableFeaturesResultMsg{output: output, err: err}
+		result, err := m.sshClient.EnableFeatures(ip)
+		return enableFeaturesResultMsg{result: result, err: err}
 	}
 }
 
