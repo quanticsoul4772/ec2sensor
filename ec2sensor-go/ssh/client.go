@@ -138,6 +138,7 @@ func (c *Client) GetReleaseChannel(ip string) (string, error) {
 }
 
 // GetAvailableUpdates retrieves available updates via corelight-client
+// Returns only the versions that are available for upgrade (excludes current version marked with *)
 func (c *Client) GetAvailableUpdates(ip, adminPassword string) ([]string, error) {
 	// Fix corelight-client cache permissions first
 	c.runCommand(ip, "mkdir -p ~/.corelight-client && sudo chown -R $(whoami) ~/.corelight-client 2>/dev/null")
@@ -154,10 +155,32 @@ func (c *Client) GetAvailableUpdates(ip, adminPassword string) ([]string, error)
 	}
 
 	// Parse version lines
+	// Lines starting with "*" are the currently installed version
+	// Lines starting with whitespace (no *) are available updates
 	var versions []string
 	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "version") {
-			versions = append(versions, strings.TrimSpace(line))
+		trimmed := strings.TrimSpace(line)
+		// Skip empty lines and header lines
+		if trimmed == "" {
+			continue
+		}
+		// Skip lines that start with * (current version) - user already sees current version elsewhere
+		if strings.HasPrefix(line, "*") {
+			continue
+		}
+		// Only include lines that look like version entries (contain "version:" pattern)
+		if strings.Contains(trimmed, "version:") || strings.Contains(trimmed, "version ") {
+			// Extract just the version number if possible
+			if idx := strings.Index(trimmed, "version"); idx != -1 {
+				// Get everything after "version" and clean it up
+				rest := strings.TrimSpace(trimmed[idx+7:]) // len("version") = 7
+				rest = strings.TrimPrefix(rest, ":")
+				rest = strings.TrimSpace(rest)
+				// Only add if it looks like a version number (starts with a digit)
+				if rest != "" && len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
+					versions = append(versions, rest)
+				}
+			}
 		}
 	}
 

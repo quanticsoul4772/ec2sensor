@@ -66,11 +66,13 @@ func (c *Client) FetchSensor(sensorName string) (*models.Sensor, error) {
 		// Check for error response (plain text)
 		bodyStr := string(body)
 		if strings.Contains(bodyStr, "Error:") && strings.Contains(bodyStr, "does not exist") {
+			// Return sensor as pending (not deleted) - it might be newly created and not yet in API
+			// The loadSensors function will handle filtering based on context
 			return &models.Sensor{
-				Name:    sensorName,
-				Deleted: true,
-				Error:   "Sensor does not exist",
-				Status:  models.StatusDeleted,
+				Name:   sensorName,
+				IP:     "",
+				Status: models.StatusPending,
+				Error:  "Sensor not yet available",
 			}, nil
 		}
 
@@ -85,6 +87,12 @@ func (c *Client) FetchSensor(sensorName string) (*models.Sensor, error) {
 			sensor.Status = models.StatusUnknown
 		}
 
+		// Mark terminated sensors as deleted
+		if sensor.Status == "terminated" {
+			sensor.Deleted = true
+			sensor.Status = models.StatusDeleted
+		}
+
 		return &sensor, nil
 	}
 
@@ -93,7 +101,7 @@ func (c *Client) FetchSensor(sensorName string) (*models.Sensor, error) {
 
 // DeleteSensor deletes a sensor via the API
 func (c *Client) DeleteSensor(sensorName string) error {
-	url := fmt.Sprintf("%s/%s", c.baseURL, sensorName)
+	url := fmt.Sprintf("%s/delete/%s", c.baseURL, sensorName)
 
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {

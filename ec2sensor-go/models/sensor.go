@@ -59,7 +59,7 @@ func (s *Sensor) ShortID() string {
 
 // IsReady returns true if the sensor is in a ready state for operations
 func (s *Sensor) IsReady() bool {
-	return s.Status == StatusRunning && s.IP != "" && s.IP != "no-ip" && s.IP != "null"
+	return s.Status == StatusRunning && s.IP != "" && s.IP != "no-ip" && s.IP != "null" && s.IP != "unknown"
 }
 
 // HasMetrics returns true if metrics have been collected

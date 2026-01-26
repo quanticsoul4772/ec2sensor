@@ -109,6 +109,9 @@ type Model struct {
 	fleetStart          time.Time
 	fleetLogs           []string
 
+	// Delete state
+	deletingSensorName string
+
 	// Traffic Generator state
 	trafficTargetIP     string
 	trafficTargetPort   string
@@ -259,7 +262,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case sensorsLoadedMsg:
-		m.loading = false
+		// Only clear loading if we're not in the middle of a delete operation
+		if m.deletingSensorName == "" {
+			m.loading = false
+		}
 		if msg.err != nil {
 			m.errorMessage = msg.err.Error()
 		} else {
@@ -285,8 +291,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case deleteResult:
 		m.loading = false
+		m.deletingSensorName = "" // Clear the sensor name
 		if msg.err != nil {
 			m.errorMessage = fmt.Sprintf("Delete failed: %v", msg.err)
+			m.view = ViewHome // Go home even on error
 		} else {
 			m.statusMessage = "Sensor deleted successfully"
 			m.view = ViewHome
@@ -318,7 +326,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.deployStatus = msg.status
 			m.deployLogs = append(m.deployLogs, fmt.Sprintf("[%s] Status: %s", formatElapsed(elapsed), msg.status))
 
-			if msg.isRunning && msg.ip != "" && msg.ip != "null" {
+			if msg.isRunning && msg.ip != "" && msg.ip != "null" && msg.ip != "unknown" {
 				// Sensor is ready!
 				m.deployLogs = append(m.deployLogs, "")
 				m.deployLogs = append(m.deployLogs, fmt.Sprintf("✓ Sensor is RUNNING at %s", msg.ip))
@@ -636,10 +644,16 @@ func (m Model) handleHomeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if len(m.sensors) > 0 && m.cursor < len(m.sensors) {
+			// Clear messages when entering operations
+			m.errorMessage = ""
+			m.statusMessage = ""
 			m.selectedIdx = m.cursor
 			m.view = ViewOperations
 		}
 	case "r":
+		// Clear any error messages on refresh
+		m.errorMessage = ""
+		m.statusMessage = ""
 		m.loading = true
 		m.loadingMsg = "Refreshing sensors..."
 		return m, tea.Batch(m.loadSensors(), m.spinner.Tick)
@@ -659,6 +673,9 @@ func (m Model) handleHomeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.sensors[idx].Selected = !m.sensors[idx].Selected
 				m.cursor = idx
 			} else {
+				// Clear messages when entering operations
+				m.errorMessage = ""
+				m.statusMessage = ""
 				m.selectedIdx = idx
 				m.cursor = idx
 				m.view = ViewOperations
@@ -670,14 +687,26 @@ func (m Model) handleHomeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleOperationsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.selectedIdx >= len(m.sensors) {
+		m.errorMessage = "Sensor no longer available. Press 'r' to refresh."
 		m.view = ViewHome
 		return m, nil
 	}
 
 	sensor := m.sensors[m.selectedIdx]
+	
+	// Check if sensor was deleted
+	if sensor.Deleted || sensor.Status == models.StatusDeleted {
+		m.errorMessage = fmt.Sprintf("Sensor '%s' was deleted. Removing from list.", sensor.ShortID())
+		// Remove from .sensors file
+		removeSensorFromFile(m.config.SensorsFile, sensor.Name)
+		m.view = ViewHome
+		return m, m.loadSensors()
+	}
 
 	switch msg.String() {
 	case "b", "esc":
+		// Clear any error messages when leaving operations view
+		m.errorMessage = ""
 		m.view = ViewHome
 	case "c", "1":
 		if sensor.IsReady() {
@@ -685,18 +714,18 @@ func (m Model) handleOperationsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return sshConnectMsg{ip: sensor.IP}
 			}
 		}
-		m.errorMessage = "Sensor not ready for SSH connection"
+		m.errorMessage = fmt.Sprintf("Cannot connect - sensor status is %s", sensor.Status)
 	case "f", "2":
 		if sensor.IsReady() {
 			m.view = ViewEnableFeatures
 		} else {
-			m.errorMessage = "Sensor not ready"
+			m.errorMessage = fmt.Sprintf("Cannot enable features - sensor status is %s", sensor.Status)
 		}
 	case "3":
 		if sensor.IsReady() {
 			m.view = ViewFleetManager
 		} else {
-			m.errorMessage = "Sensor not ready"
+			m.errorMessage = fmt.Sprintf("Cannot add to fleet - sensor status is %s", sensor.Status)
 		}
 	case "4":
 		if sensor.IsReady() {
@@ -709,7 +738,7 @@ func (m Model) handleOperationsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.trafficInputStep = 0
 			m.view = ViewTrafficGenerator
 		} else {
-			m.errorMessage = "Sensor not ready"
+			m.errorMessage = fmt.Sprintf("Cannot configure traffic - sensor status is %s", sensor.Status)
 		}
 	case "u", "5":
 		if sensor.IsReady() {
@@ -721,15 +750,16 @@ func (m Model) handleOperationsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.spinner.Tick,
 			)
 		} else {
-			m.errorMessage = "Sensor not ready"
+			m.errorMessage = fmt.Sprintf("Cannot upgrade - sensor status is %s", sensor.Status)
 		}
 	case "d", "6":
+		m.deletingSensorName = sensor.Name
 		m.view = ViewConfirmDelete
 	case "h", "7":
 		if sensor.IsReady() {
 			m.view = ViewHealth
 		} else {
-			m.errorMessage = "Sensor not ready for health check"
+			m.errorMessage = fmt.Sprintf("Cannot view health - sensor status is %s", sensor.Status)
 		}
 	}
 	return m, nil
@@ -746,17 +776,21 @@ func (m Model) handleHealthKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
-		if m.selectedIdx < len(m.sensors) {
-			sensorName := m.sensors[m.selectedIdx].Name
+		if m.deletingSensorName != "" {
 			m.loading = true
 			m.loadingMsg = "Deleting sensor..."
 			return m, tea.Batch(
-				m.deleteSensor(sensorName),
+				m.deleteSensor(m.deletingSensorName),
 				m.spinner.Tick,
 			)
 		}
+		// Fallback: no sensor name stored
+		m.errorMessage = "No sensor selected for deletion"
+		m.view = ViewHome
 	case "n", "N", "esc":
-		m.view = ViewOperations
+		m.errorMessage = ""
+		m.deletingSensorName = ""
+		m.view = ViewHome
 	}
 	return m, nil
 }
